@@ -1,0 +1,15 @@
+{
+  "name": "repomind",
+  "owner": {
+    "name": "gynnash"
+  },
+  "description": "RepoMind architecture research skills and plugins.",
+  "plugins": [
+    {
+      "name": "repomind",
+      "source": "./plugins/repomind",
+      "description": "Find similar open-source repositories and extract reusable architecture code cards.",
+      "version": "0.1.0"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "repomind",
+  "interface": {
+    "displayName": "RepoMind"
+  },
+  "plugins": [
+    {
+      "name": "repomind",
+      "source": {
+        "source": "local",
+        "path": "./plugins/repomind"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

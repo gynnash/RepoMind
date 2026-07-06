@@ -1,0 +1,7 @@
+interface:
+  display_name: "RepoMind"
+  short_description: "Find reusable architecture patterns from GitHub"
+  default_prompt: "Use $repomind to find open-source architecture patterns relevant to my design."
+
+policy:
+  allow_implicit_invocation: true

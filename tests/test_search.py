@@ -1,0 +1,429 @@
+import importlib.util
+import json
+import os
+from pathlib import Path
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import threading
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SKILL_PATH = ROOT / "plugins" / "repomind" / "skills" / "repomind"
+SEARCH_PATH = SKILL_PATH / "scripts" / "search.py"
+DEFAULT_CONFIG_PATH = SKILL_PATH / "config" / "defaults.json"
+
+
+def load_search():
+    spec = importlib.util.spec_from_file_location("repomind_search", SEARCH_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class SearchTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.home = Path(self.temp_dir.name) / ".repomind"
+        self.home.mkdir()
+        self.config_path = self.home / "config.json"
+        self.config_path.write_text(
+            json.dumps(
+                {
+                    "max_search_repos": 20,
+                    "min_relevance_score": 3.5,
+                    "card_similarity_threshold": 0.7,
+                    "card_staleness_months": 6,
+                    "empty_query_ttl_hours": 24,
+                    "mandatory_dimensions": [
+                        "architecture",
+                        "design_patterns",
+                        "data_flow",
+                    ],
+                    "optional_dimensions": [
+                        "interface_design",
+                        "tech_stack",
+                        "deployment",
+                        "evolution_history",
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.search = load_search()
+        self.search.DB_DIR = self.home
+        self.search.CONFIG_PATH = self.config_path
+        self.search.DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_PATH
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def repo_data(self, stars=38000):
+        return {
+            "full_name": "apache/airflow",
+            "url": "https://github.com/apache/airflow",
+            "language": "Python",
+            "topics": ["workflow", "scheduler"],
+            "stars": stars,
+            "description": "Airflow",
+        }
+
+    def card_data(self, repo_id=1):
+        return {
+            "repo_id": repo_id,
+            "dimension": "architecture",
+            "title": "Airflow DAG Scheduling Architecture",
+            "content": "full content",
+            "keywords": "scheduling,DAG,workflow,airflow,executor,orchestration",
+        }
+
+    def test_public_reads_auto_initialize_database(self):
+        self.assertEqual(self.search.get_card_count(), 0)
+        self.assertEqual(self.search.search_cards_v1(["scheduler"]), [])
+        self.assertEqual(self.search.get_all_cards_with_repo(), [])
+
+    def test_existing_repo_is_refreshed(self):
+        repo_id = self.search.insert_repo(self.repo_data(stars=1))
+        self.search.insert_repo(self.repo_data(stars=2))
+        repo = self.search.get_repo("apache/airflow")
+        self.assertEqual(repo_id, repo["id"])
+        self.assertEqual(repo["stars"], 2)
+
+    def test_foreign_key_rejects_orphan_card(self):
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.search.insert_card(self.card_data(repo_id=999))
+
+    def test_airflow_near_duplicate_is_detected(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        self.search.insert_card(self.card_data(repo_id))
+        self.assertTrue(
+            self.search.check_similar_card(
+                "Airflow Task Scheduling Design",
+                "scheduling,DAG,airflow,workflow,executor",
+            )
+        )
+        self.assertFalse(
+            self.search.check_similar_card(
+                "React Component Rendering",
+                "react,frontend,component,state",
+            )
+        )
+
+    def test_similarity_threshold_comes_from_config(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        self.search.insert_card(self.card_data(repo_id))
+        config = json.loads(self.config_path.read_text(encoding="utf-8"))
+        config["card_similarity_threshold"] = 0.9
+        self.config_path.write_text(json.dumps(config), encoding="utf-8")
+        self.assertFalse(
+            self.search.check_similar_card(
+                "Unrelated title",
+                "scheduling,DAG,airflow,workflow,unmatched",
+            )
+        )
+
+    def test_atomic_insert_creates_only_one_duplicate(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        card = self.card_data(repo_id)
+        barrier = threading.Barrier(4)
+        results = []
+
+        def insert():
+            barrier.wait()
+            results.append(self.search.insert_card_if_new(card))
+
+        threads = [threading.Thread(target=insert) for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(sum(result["inserted"] for result in results), 1)
+        self.assertEqual(self.search.get_card_count(), 1)
+
+    def test_search_has_relevance_and_staleness(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        self.search.insert_card(self.card_data(repo_id))
+        fresh = self.search.search_cards_v1(["scheduling", "missing"])[0]
+        self.assertEqual(fresh["relevance"], 2.5)
+        self.assertFalse(fresh["is_stale"])
+
+        with self.search.connect_db() as conn:
+            conn.execute(
+                "UPDATE repos SET fetched_at = datetime('now', '-7 months') WHERE id = ?",
+                (repo_id,),
+            )
+        stale = self.search.get_cards_by_ids([1])[0]
+        self.assertTrue(stale["is_stale"])
+        self.search.insert_repo(self.repo_data())
+        refreshed = self.search.get_cards_by_ids([1])[0]
+        self.assertFalse(refreshed["is_stale"])
+
+    def test_get_cards_preserves_requested_order(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        first = self.search.insert_card(self.card_data(repo_id))
+        second_data = self.card_data(repo_id)
+        second_data["title"] = "Second card"
+        second = self.search.insert_card(second_data)
+        cards = self.search.get_cards_by_ids([second, first])
+        self.assertEqual([card["id"] for card in cards], [second, first])
+
+    def test_empty_query_history_expires(self):
+        self.search.record_empty_query("agent scheduler")
+        self.assertTrue(self.search.recent_empty_query(" agent   scheduler "))
+        with self.search.connect_db() as conn:
+            conn.execute(
+                "UPDATE search_history SET last_empty_at = datetime('now', '-25 hours')"
+            )
+        self.assertFalse(self.search.recent_empty_query("agent scheduler"))
+
+    def test_legacy_migration_rejects_orphans_without_data_loss(self):
+        database = self.home / "repomind.db"
+        conn = sqlite3.connect(database)
+        conn.executescript(
+            """
+            CREATE TABLE repos (
+                id INTEGER PRIMARY KEY,
+                full_name TEXT UNIQUE NOT NULL,
+                url TEXT NOT NULL
+            );
+            CREATE TABLE cards (
+                id INTEGER PRIMARY KEY,
+                repo_id INTEGER REFERENCES repos(id),
+                dimension TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                keywords TEXT,
+                embedding BLOB,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            INSERT INTO cards
+                (repo_id, dimension, title, content)
+            VALUES (999, 'architecture', 'orphan', 'must survive');
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        with self.assertRaisesRegex(
+            sqlite3.IntegrityError, "legacy cards reference missing repositories"
+        ):
+            self.search.connect_db()
+
+        conn = sqlite3.connect(database)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM cards").fetchone()[0], 1)
+        self.assertEqual(
+            conn.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'cards_legacy'"
+            ).fetchone()[0],
+            0,
+        )
+        conn.close()
+
+
+class CliTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+        self.skill_dir = self.root / "skill"
+        self.tool_dir = self.skill_dir / "scripts"
+        self.tool_dir.mkdir(parents=True)
+        self.script = self.tool_dir / "search.py"
+        self.script.write_bytes(SEARCH_PATH.read_bytes())
+        config_dir = self.skill_dir / "config"
+        config_dir.mkdir()
+        self.config = {
+            "max_search_repos": 20,
+            "min_relevance_score": 3.5,
+            "card_similarity_threshold": 0.7,
+            "card_staleness_months": 6,
+            "empty_query_ttl_hours": 24,
+            "mandatory_dimensions": ["architecture", "design_patterns", "data_flow"],
+            "optional_dimensions": [],
+        }
+        (config_dir / "defaults.json").write_text(
+            json.dumps(self.config), encoding="utf-8"
+        )
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def run_cli(self, *args, stdin=None):
+        return subprocess.run(
+            [sys.executable, str(self.script), *args],
+            cwd=self.root,
+            input=stdin,
+            text=True,
+            capture_output=True,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+
+    def test_first_use_count_and_config(self):
+        count = self.run_cli("count")
+        self.assertEqual(count.returncode, 0)
+        self.assertEqual(json.loads(count.stdout), {"count": 0})
+        config = self.run_cli("config")
+        self.assertEqual(json.loads(config.stdout)["max_search_repos"], 20)
+
+    def test_cli_accepts_json_from_stdin(self):
+        repo = self.run_cli(
+            "insert-repo",
+            "-",
+            stdin=json.dumps(
+                {
+                    "full_name": "a/b",
+                    "url": "https://github.com/a/b",
+                    "stars": 1,
+                }
+            ),
+        )
+        self.assertEqual(repo.returncode, 0)
+        self.assertEqual(json.loads(repo.stdout)["repo_id"], 1)
+
+    def test_cli_validation_errors_are_json(self):
+        cases = [
+            ("check-repo",),
+            ("insert-repo", "{bad json"),
+            ("get-cards", "not-an-id"),
+            ("unknown-command",),
+        ]
+        for args in cases:
+            with self.subTest(args=args):
+                result = self.run_cli(*args)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("error", json.loads(result.stdout))
+                self.assertEqual(result.stderr, "")
+
+    def test_project_root_env_controls_database_location(self):
+        project = self.root / "target-project"
+        nested = project / "src" / "nested"
+        nested.mkdir(parents=True)
+        result = subprocess.run(
+            [sys.executable, str(self.script), "count"],
+            cwd=nested,
+            text=True,
+            capture_output=True,
+            env={
+                **os.environ,
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "REPOMIND_PROJECT_ROOT": str(project),
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((project / ".repomind" / "repomind.db").is_file())
+
+    def test_git_root_is_discovered_from_nested_directory(self):
+        project = self.root / "git-project"
+        nested = project / "src" / "nested"
+        nested.mkdir(parents=True)
+        subprocess.run(
+            ["git", "init", "-q"],
+            cwd=project,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = subprocess.run(
+            [sys.executable, str(self.script), "count"],
+            cwd=nested,
+            text=True,
+            capture_output=True,
+            env={
+                **os.environ,
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "REPOMIND_PROJECT_ROOT": "",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((project / ".repomind" / "repomind.db").is_file())
+
+    def test_project_config_overrides_bundled_defaults(self):
+        project = self.root / "configured-project"
+        state = project / ".repomind"
+        state.mkdir(parents=True)
+        (state / "config.json").write_text(
+            json.dumps({"max_search_repos": 7}), encoding="utf-8"
+        )
+        env_project = self.root / "environment-project"
+        env_project.mkdir()
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.script),
+                "--project-root",
+                str(project),
+                "config",
+            ],
+            text=True,
+            capture_output=True,
+            env={
+                **os.environ,
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "REPOMIND_PROJECT_ROOT": str(env_project),
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)["max_search_repos"], 7)
+        self.assertEqual(
+            json.loads(result.stdout)["card_similarity_threshold"], 0.7
+        )
+
+    def test_invalid_project_config_is_a_structured_cli_error(self):
+        project = self.root / "invalid-project"
+        state = project / ".repomind"
+        state.mkdir(parents=True)
+        (state / "config.json").write_text(
+            json.dumps({"mandatory_dimensions": None}), encoding="utf-8"
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.script),
+                "--project-root",
+                str(project),
+                "insert-card",
+                json.dumps(
+                    {
+                        "repo_id": 1,
+                        "dimension": "architecture",
+                        "title": "x",
+                        "content": "x",
+                    }
+                ),
+            ],
+            text=True,
+            capture_output=True,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("mandatory_dimensions", json.loads(result.stdout)["error"])
+        self.assertEqual(result.stderr, "")
+
+    def test_unknown_project_config_key_is_rejected(self):
+        project = self.root / "unknown-config-project"
+        state = project / ".repomind"
+        state.mkdir(parents=True)
+        (state / "config.json").write_text(
+            json.dumps({"surprise": True}), encoding="utf-8"
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.script),
+                "--project-root",
+                str(project),
+                "config",
+            ],
+            text=True,
+            capture_output=True,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Unknown config key", json.loads(result.stdout)["error"])
+        self.assertEqual(result.stderr, "")
+
+
+if __name__ == "__main__":
+    unittest.main()

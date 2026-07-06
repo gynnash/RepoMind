@@ -1,0 +1,5 @@
+.repomind/repomind.db
+.repomind/repomind.db-wal
+.repomind/repomind.db-shm
+__pycache__/
+*.pyc

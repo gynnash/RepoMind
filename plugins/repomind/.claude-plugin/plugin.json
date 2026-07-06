@@ -1,0 +1,13 @@
+{
+  "name": "repomind",
+  "version": "0.1.0",
+  "description": "Find similar open-source repositories and extract reusable architecture code cards.",
+  "author": {
+    "name": "gynnash",
+    "url": "https://github.com/gynnash"
+  },
+  "homepage": "https://github.com/gynnash/RepoMind",
+  "repository": "https://github.com/gynnash/RepoMind",
+  "license": "MIT",
+  "keywords": ["architecture", "github", "design-patterns", "code-cards"]
+}

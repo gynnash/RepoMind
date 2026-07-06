@@ -1,0 +1,27 @@
+{
+  "name": "repomind",
+  "version": "0.1.0",
+  "description": "Find similar open-source repositories and extract reusable architecture code cards.",
+  "author": {
+    "name": "gynnash",
+    "url": "https://github.com/gynnash"
+  },
+  "homepage": "https://github.com/gynnash/RepoMind",
+  "repository": "https://github.com/gynnash/RepoMind",
+  "license": "MIT",
+  "keywords": ["architecture", "github", "design-patterns", "code-cards"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "RepoMind",
+    "shortDescription": "Find reusable architecture patterns from GitHub",
+    "longDescription": "Search GitHub for architecturally similar repositories, evaluate their relevance, and save reusable architecture code cards in a project-local cache.",
+    "developerName": "gynnash",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://github.com/gynnash/RepoMind",
+    "defaultPrompt": [
+      "Find open-source architecture patterns relevant to my design"
+    ],
+    "screenshots": []
+  }
+}
