@@ -20,6 +20,9 @@ RepoMind is distributed from one source as:
 - a Codex plugin; and
 - a standalone Agent Skill.
 
+For a complete end-to-end walkthrough, see the
+[RepoMind Tutorial](docs/tutorial.md).
+
 ## What RepoMind is for
 
 Use RepoMind when you need evidence and precedent for decisions such as:
