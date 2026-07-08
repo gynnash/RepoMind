@@ -11,11 +11,13 @@ Research open-source implementations relevant to this architecture request:
 
 `$ARGUMENTS`
 
-Use the bundled helper from this skill directory. In Claude Code the directory
-is `${CLAUDE_SKILL_DIR}`; in other hosts resolve the directory containing this
-`SKILL.md`. Refer to its absolute script path below as `SEARCH_SCRIPT`.
-The helper discovers the current project root automatically and stores runtime
-state in that project's `.repomind/` directory.
+Use the bundled helper from this skill directory. Set
+`SKILL_DIR=<absolute path to this skill>`: in Claude Code use
+`${CLAUDE_SKILL_DIR}`; in Codex use the file source path shown for this
+`SKILL.md`; in other hosts resolve the directory containing this file. Then set
+`SEARCH_SCRIPT="$SKILL_DIR/scripts/search.py"`. The helper discovers the
+current project root automatically and stores runtime state in that project's
+`.repomind/` directory.
 
 ## Mandatory scope gate
 
@@ -37,9 +39,16 @@ Classify `$ARGUMENTS` before reading references or running any command.
 After the scope gate passes, run:
 
 ```bash
+test -f "$SEARCH_SCRIPT"
 python3 "$SEARCH_SCRIPT" init
 python3 "$SEARCH_SCRIPT" config
 ```
+
+If `test -f "$SEARCH_SCRIPT"` fails, STOP and report that the RepoMind plugin
+installation or cache is incomplete. Include the expected `SEARCH_SCRIPT` path
+and ask the user to reinstall or refresh the plugin. Do not continue with a
+best-effort RepoMind-style workflow, and do not perform GitHub research without
+the helper.
 
 Use the returned limits and thresholds. Do not hard-code replacements.
 

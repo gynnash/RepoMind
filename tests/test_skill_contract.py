@@ -43,6 +43,13 @@ class SkillContractTests(unittest.TestCase):
         self.assertIn("STOP", gate_text)
         self.assertIn("narrow implementation", gate_text)
 
+    def test_helper_path_resolution_is_explicit_and_fail_closed(self):
+        self.assertIn('SKILL_DIR=<absolute path to this skill>', self.text)
+        self.assertIn('SEARCH_SCRIPT="$SKILL_DIR/scripts/search.py"', self.text)
+        self.assertIn('test -f "$SEARCH_SCRIPT"', self.text)
+        self.assertIn("best-effort RepoMind-style workflow", self.text)
+        self.assertIn("do not perform GitHub research without", self.text)
+
     def test_skill_is_concise_and_references_supporting_files(self):
         self.assertLess(len(self.text.splitlines()), 220)
         for name in (

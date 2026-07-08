@@ -329,6 +329,20 @@ codex plugin list
 
 After installing or updating a plugin, open a new thread.
 
+### RepoMind says the helper script is missing
+
+RepoMind must use its bundled helper at:
+
+```text
+<plugin>/skills/repomind/scripts/search.py
+```
+
+If Codex reports that only `SKILL.md` is available, the plugin cache or thread
+state is stale. Check that the installed plugin package contains
+`scripts/search.py`, then reinstall or refresh the plugin and open a new Codex
+thread. Treat any answer produced without the helper as a degraded fallback,
+not a complete RepoMind run.
+
 ### RepoMind refuses the request
 
 Rewrite the request around a system-level decision. Include the domain,
