@@ -1,0 +1,82 @@
+{
+  "rubric": {
+    "scale": "0-5",
+    "minimum_total_improvement_percent": 30,
+    "dimensions": [
+      "relevance",
+      "specificity",
+      "implementation_guidance",
+      "applicability_explanation",
+      "anti_hallucination"
+    ],
+    "dimension_descriptions": {
+      "relevance": "Derived from how many prompt-specific architecture terms appear in the answer.",
+      "specificity": "Derived from concrete GitHub repository URLs and source-file references.",
+      "implementation_guidance": "Derived from explicit implementation-planning language such as modeling, persistence, boundaries, retries, or idempotency.",
+      "applicability_explanation": "Derived from explicit 'why useful' explanations and transferability language.",
+      "anti_hallucination": "Derived from cited repositories/files and reduced when the answer is uncited generic advice."
+    }
+  },
+  "cases": [
+    {
+      "id": "workflow-scheduler-dag-retries",
+      "prompt": "Find architecture examples for a workflow scheduler with DAG execution and retry semantics.",
+      "architecture_terms": [
+        "workflow",
+        "scheduler",
+        "dag",
+        "retry"
+      ],
+      "baseline": {
+        "mode": "without_repomind",
+        "provenance": "deterministic baseline fixture representing a generic answer without repository search or local code-card evidence",
+        "output": "Consider using a DAG abstraction with nodes, edges, retries, and a worker queue. You may want a scheduler loop, persistent task state, and retry policies. A database table can track task status. Consider adding observability and backoff."
+      },
+      "repomind": {
+        "mode": "with_repomind",
+        "provenance": "deterministic RepoMind fixture assembled from recorded local code-card fields: repository URL, source paths, architecture summary, and transfer notes",
+        "output": "RepoMind result: https://github.com/apache/airflow shows a mature workflow DAG scheduler. Code locations: airflow/models/dag.py, airflow/jobs/scheduler_job_runner.py, airflow/models/taskinstance.py. Why useful: it separates DAG definition, scheduling decisions, and task instance state, which directly maps to retry semantics and executor handoff. Implementation guidance: model the DAG as immutable workflow metadata, persist each task attempt separately, and keep scheduler decisions idempotent so crashed scheduler loops can resume safely."
+      }
+    },
+    {
+      "id": "developer-tool-plugin-boundaries",
+      "prompt": "Find real repositories showing plugin/module boundary design for extensible developer tools.",
+      "architecture_terms": [
+        "plugin",
+        "module",
+        "boundary",
+        "extensible"
+      ],
+      "baseline": {
+        "mode": "without_repomind",
+        "provenance": "deterministic baseline fixture representing a generic answer without repository search or local code-card evidence",
+        "output": "Consider defining a plugin interface with lifecycle hooks and configuration. Modules should be isolated from the core app. You can load plugins dynamically and expose extension points. Consider documenting the API clearly."
+      },
+      "repomind": {
+        "mode": "with_repomind",
+        "provenance": "deterministic RepoMind fixture assembled from recorded local code-card fields: repository URL, source paths, architecture summary, and transfer notes",
+        "output": "RepoMind result: https://github.com/prettier/prettier demonstrates an extensible formatter plugin boundary. Code locations: src/main/core.js, src/main/parser-and-printer.js, docs/plugins.md. Why useful: the core separates orchestration from plugin-provided parser/printer modules while preserving centralized option handling. Implementation guidance: keep the host responsible for orchestration and errors, make each module boundary explicit, and version the boundary so third-party plugins can survive internal refactors."
+      }
+    },
+    {
+      "id": "data-ingestion-queue-batching-recovery",
+      "prompt": "Find data ingestion pipeline architecture examples with queueing, batching, and failure recovery.",
+      "architecture_terms": [
+        "ingestion",
+        "queue",
+        "batch",
+        "recovery"
+      ],
+      "baseline": {
+        "mode": "without_repomind",
+        "provenance": "deterministic baseline fixture representing a generic answer without repository search or local code-card evidence",
+        "output": "Consider putting messages on a queue, processing them in batches, and retrying failures. Store offsets or checkpoints. Use dead-letter queues for poison messages and add metrics. The design should separate ingestion from processing."
+      },
+      "repomind": {
+        "mode": "with_repomind",
+        "provenance": "deterministic RepoMind fixture assembled from recorded local code-card fields: repository URL, source paths, architecture summary, and transfer notes",
+        "output": "RepoMind result: https://github.com/apache/beam shows a portable data ingestion pipeline model for batching, queue-like bundle execution, and recovery. Code locations: sdks/python/apache_beam/transforms/core.py, sdks/python/apache_beam/runners/worker/bundle_processor.py, sdks/python/apache_beam/io/iobase.py. Why useful: Beam separates source reading, transforms, bundle execution, and runner-specific recovery semantics. Implementation guidance: represent ingestion as bounded bundles, commit progress at bundle boundaries, and make retry behavior part of runner execution instead of source adapters."
+      }
+    }
+  ]
+}

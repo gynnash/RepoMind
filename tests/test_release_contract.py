@@ -29,6 +29,12 @@ class ReleaseContractTests(unittest.TestCase):
         ):
             self.assertIn(pattern, ignore)
 
+    def test_readme_documents_usefulness_evaluation(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("comparative usefulness evaluation", readme.lower())
+        self.assertIn("tests/fixtures/usefulness_cases.json", readme)
+        self.assertIn("30%", readme)
+
 
 if __name__ == "__main__":
     unittest.main()

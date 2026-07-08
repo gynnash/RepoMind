@@ -195,6 +195,15 @@ Run the complete test suite:
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 ```
 
+The suite includes a deterministic comparative usefulness evaluation in
+`tests/fixtures/usefulness_cases.json`. It defines three architecture-research
+prompts, a generic no-RepoMind baseline output, and a RepoMind-style output
+assembled from recorded code-card fields. The test code derives scores from
+the text using a five-part rubric: relevance, specificity, implementation
+guidance, applicability explanation, and anti-hallucination. Each RepoMind
+answer must improve the derived total score by at least 30% and must not
+regress on relevance or specificity.
+
 Validate the Claude Code plugin and marketplace:
 
 ```bash
