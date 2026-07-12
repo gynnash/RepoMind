@@ -2,6 +2,7 @@
 """RepoMind database helper — SQLite operations for repository code cards."""
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,11 @@ import re
 import sqlite3
 import subprocess
 import sys
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+from freshness import calculate_check_interval, is_check_due, median_commit_interval_days
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
@@ -363,6 +369,115 @@ def get_repo(full_name):
         return dict(row) if row else None
 
 
+def _utc_text(value):
+    if value is None:
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def get_repositories_for_cards(card_ids, now=None):
+    """Group requested cards by repository using only the local snapshot."""
+    if not card_ids:
+        return []
+    placeholders = ",".join("?" for _ in card_ids)
+    with connect_db() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT r.*, c.id AS card_id
+            FROM cards c
+            JOIN repos r ON r.id = c.repo_id
+            WHERE c.id IN ({placeholders})
+            ORDER BY r.id, c.id
+            """,
+            card_ids,
+        ).fetchall()
+    grouped = {}
+    due_at = _utc_text(now)
+    for row in rows:
+        item = dict(row)
+        card_id = item.pop("card_id")
+        repo = grouped.setdefault(item["id"], {**item, "card_ids": []})
+        repo["card_ids"].append(card_id)
+    for repo in grouped.values():
+        repo["check_due"] = is_check_due(repo["next_check_at"], due_at)
+    return list(grouped.values())
+
+
+def record_repository_check(data):
+    """Persist the result of an already-performed repository check."""
+    outcome = data.get("outcome")
+    if outcome not in {"unchanged", "unrelated", "localized", "global"}:
+        raise ValueError(
+            "Invalid outcome: expected unchanged, unrelated, localized, or global"
+        )
+    if data.get("repo_id") is None:
+        raise ValueError("Missing repo field: repo_id")
+    checked_at = _utc_text(data.get("checked_at"))
+    timestamps = data.get("commit_timestamps", [])
+    if not isinstance(timestamps, list):
+        raise ValueError("commit_timestamps must be an array")
+    config = load_config()
+    with connect_db() as conn:
+        repo = conn.execute(
+            "SELECT * FROM repos WHERE id=?", (data["repo_id"],)
+        ).fetchone()
+        if repo is None:
+            raise ValueError(f"Repository not found: {data['repo_id']}")
+        base = median_commit_interval_days(timestamps)
+        if base is None:
+            base = float(config["freshness_default_days"])
+        stable = outcome in {"unchanged", "unrelated"}
+        stability_runs = repo["stability_runs"] + 1 if stable else 0
+        interval = calculate_check_interval(
+            base,
+            stability_runs,
+            outcome == "global",
+            outcome in {"localized", "global"},
+            float(config["freshness_min_days"]),
+            float(config["freshness_max_days"]),
+            float(config["freshness_stability_growth"]),
+            float(config["freshness_change_decay"]),
+        )
+        next_check_at = _utc_text(
+            datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
+            + timedelta(days=interval)
+        )
+        changed_at = checked_at if outcome in {"localized", "global"} else None
+        conn.execute(
+            """
+            UPDATE repos SET
+                last_head_sha=COALESCE(?, last_head_sha),
+                default_branch=COALESCE(?, default_branch),
+                readme_digest=COALESCE(?, readme_digest),
+                architecture_digest=COALESCE(?, architecture_digest),
+                structure_digest=COALESCE(?, structure_digest),
+                last_checked_at=?,
+                last_changed_at=COALESCE(?, last_changed_at),
+                next_check_at=?, check_interval_days=?, stability_runs=?,
+                commit_intervals=?
+            WHERE id=?
+            """,
+            (
+                data.get("head_sha"), data.get("default_branch"),
+                data.get("readme_digest"), data.get("architecture_digest"),
+                data.get("structure_digest"), checked_at, changed_at,
+                next_check_at, interval, stability_runs,
+                json.dumps(timestamps), data["repo_id"],
+            ),
+        )
+    return {
+        "repo_id": data["repo_id"], "outcome": outcome,
+        "last_checked_at": checked_at, "next_check_at": next_check_at,
+        "check_interval_days": interval, "stability_runs": stability_runs,
+    }
+
+
 def reset_db():
     db_path = get_db_path()
     for suffix in ("", "-wal", "-shm"):
@@ -535,6 +650,8 @@ def get_cards_by_ids(card_ids):
         rows = conn.execute(
             f"""
             SELECT c.*, r.full_name, r.url, r.stars, r.language,
+                   r.last_head_sha, r.last_checked_at, r.last_changed_at,
+                   r.next_check_at, r.check_interval_days, r.stability_runs,
                    r.fetched_at < datetime('now', ?) AS is_stale,
                    0.0 AS relevance
             FROM cards c
@@ -611,6 +728,10 @@ def _parser():
     check_repo.add_argument("full_name")
     get_cards = subparsers.add_parser("get-cards")
     get_cards.add_argument("card_ids", nargs="*")
+    repos = subparsers.add_parser("repos-for-cards")
+    repos.add_argument("card_ids", nargs="*")
+    record_check = subparsers.add_parser("record-repo-check")
+    record_check.add_argument("data")
     similar = subparsers.add_parser("check-similar")
     similar.add_argument("title")
     similar.add_argument("keywords", nargs="?", default="")
@@ -660,6 +781,10 @@ def run_command(args):
         return insert_card_if_new(_json_argument(args.data))
     if command == "get-cards":
         return get_cards_by_ids(_card_ids(args.card_ids))
+    if command == "repos-for-cards":
+        return get_repositories_for_cards(_card_ids(args.card_ids))
+    if command == "record-repo-check":
+        return record_repository_check(_json_argument(args.data))
     if command == "check-similar":
         return {
             "similar_exists": check_similar_card(args.title, args.keywords)

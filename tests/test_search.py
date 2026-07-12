@@ -14,6 +14,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_PATH = ROOT / "plugins" / "repomind" / "skills" / "repomind"
 SEARCH_PATH = SKILL_PATH / "scripts" / "search.py"
+FRESHNESS_PATH = SKILL_PATH / "scripts" / "freshness.py"
 DEFAULT_CONFIG_PATH = SKILL_PATH / "config" / "defaults.json"
 
 
@@ -229,6 +230,49 @@ class SearchTests(unittest.TestCase):
         cards = self.search.get_cards_by_ids([second, first])
         self.assertEqual([card["id"] for card in cards], [second, first])
 
+    def test_repositories_for_cards_groups_ids_and_reports_due_without_network(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        card_id = self.search.insert_card(self.card_data(repo_id))
+
+        repositories = self.search.get_repositories_for_cards(
+            [card_id], now="2026-07-12T08:00:00Z"
+        )
+
+        self.assertEqual(len(repositories), 1)
+        self.assertEqual(repositories[0]["id"], repo_id)
+        self.assertEqual(repositories[0]["card_ids"], [card_id])
+        self.assertTrue(repositories[0]["check_due"])
+
+    def test_unchanged_check_advances_schedule_without_updating_cards(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        card_id = self.search.insert_card(self.card_data(repo_id))
+        with self.search.connect_db() as conn:
+            conn.execute(
+                "UPDATE cards SET card_updated_at=? WHERE id=?",
+                ("2026-07-01T00:00:00Z", card_id),
+            )
+
+        result = self.search.record_repository_check({
+            "repo_id": repo_id,
+            "outcome": "unchanged",
+            "head_sha": "abc123",
+            "checked_at": "2026-07-12T08:00:00Z",
+            "commit_timestamps": [
+                "2026-07-08T08:00:00Z",
+                "2026-07-10T08:00:00Z",
+                "2026-07-12T08:00:00Z",
+            ],
+        })
+
+        repo = self.search.get_repo("apache/airflow")
+        card = self.search.get_cards_by_ids([card_id])[0]
+        self.assertEqual(repo["last_checked_at"], "2026-07-12T08:00:00Z")
+        self.assertEqual(repo["last_head_sha"], "abc123")
+        self.assertEqual(repo["check_interval_days"], 3.0)
+        self.assertEqual(repo["next_check_at"], "2026-07-15T08:00:00Z")
+        self.assertEqual(card["card_updated_at"], "2026-07-01T00:00:00Z")
+        self.assertEqual(result["outcome"], "unchanged")
+
     def test_empty_query_history_expires(self):
         self.search.record_empty_query("agent scheduler")
         self.assertTrue(self.search.recent_empty_query(" agent   scheduler "))
@@ -348,6 +392,7 @@ class CliTests(unittest.TestCase):
         self.tool_dir.mkdir(parents=True)
         self.script = self.tool_dir / "search.py"
         self.script.write_bytes(SEARCH_PATH.read_bytes())
+        (self.tool_dir / "freshness.py").write_bytes(FRESHNESS_PATH.read_bytes())
         config_dir = self.skill_dir / "config"
         config_dir.mkdir()
         self.config = {
@@ -400,6 +445,33 @@ class CliTests(unittest.TestCase):
         )
         self.assertEqual(repo.returncode, 0)
         self.assertEqual(json.loads(repo.stdout)["repo_id"], 1)
+
+    def test_snapshot_commands_accept_card_ids_and_json_stdin(self):
+        repo = self.run_cli(
+            "insert-repo", "-",
+            stdin=json.dumps({"full_name": "a/b", "url": "https://github.com/a/b"}),
+        )
+        repo_id = json.loads(repo.stdout)["repo_id"]
+        card = self.run_cli(
+            "insert-card", "-",
+            stdin=json.dumps({
+                "repo_id": repo_id, "dimension": "architecture",
+                "title": "A card", "content": "Evidence",
+            }),
+        )
+        card_id = json.loads(card.stdout)["card_id"]
+
+        grouped = self.run_cli("repos-for-cards", str(card_id))
+        self.assertEqual(json.loads(grouped.stdout)[0]["card_ids"], [card_id])
+        recorded = self.run_cli(
+            "record-repo-check", "-",
+            stdin=json.dumps({
+                "repo_id": repo_id, "outcome": "unchanged", "head_sha": "abc",
+                "checked_at": "2026-07-12T08:00:00Z", "commit_timestamps": [],
+            }),
+        )
+        self.assertEqual(recorded.returncode, 0, recorded.stdout)
+        self.assertEqual(json.loads(recorded.stdout)["outcome"], "unchanged")
 
     def test_cli_validation_errors_are_json(self):
         cases = [
