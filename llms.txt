@@ -1,0 +1,105 @@
+# RepoMind
+
+RepoMind is an AI coding skill that searches real GitHub repositories, extracts reusable software architecture patterns, and provides structured implementation guidance for AI coding agents such as Claude Code and Codex.
+
+
+## Capabilities
+
+- Search GitHub repositories by product requirement
+- Identify similar open-source projects
+- Extract architecture patterns
+- Summarize module boundaries
+- Discover data flow
+- Discover scheduling patterns
+- Discover implementation strategies
+- Generate structured guidance for coding agents
+
+
+## Use this skill when
+
+- Designing a new software system
+- Creating project architecture
+- Looking for implementation examples
+- Building an MCP server
+- Building an Agent
+- Building a vector database
+- Building a distributed system
+- Looking for reusable code patterns
+
+
+## Do not use this skill when
+
+- Fixing syntax errors
+- Formatting code
+- Explaining language syntax
+- Small refactoring
+
+
+## Input
+
+Natural language product requirement.
+
+Example:
+
+Build a distributed task scheduler supporting retry and DAG.
+
+
+## Output
+
+The skill returns:
+
+- Similar repositories
+- Architecture summary
+- Key design patterns
+- Module boundaries
+- Data flow
+- Trade-offs
+- Recommended implementation
+
+
+User:
+
+Build a vector database.
+
+Output:
+
+Repository:
+Milvus
+
+Architecture:
+
+- Query Node
+- Data Node
+- Root Coord
+
+Patterns:
+
+- Segment
+- WAL
+- Snapshot
+
+Recommendation:
+
+Use append-only storage.
+
+
+## Prompt Tips
+
+Good queries:
+
+- Build a recommendation system.
+- Build an MCP server.
+- Build a memory system.
+
+Bad queries:
+
+- Hello
+- Fix typo
+
+
+## Limitations
+
+- Requires Internet access.
+- Repository quality depends on GitHub search.
+- Does not modify repositories.
+- Does not generate production code.
