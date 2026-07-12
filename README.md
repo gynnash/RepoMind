@@ -1,15 +1,16 @@
 # RepoMind
 
-**Architecture research for coding agents, grounded in real open-source
-implementations.**
+**Open-source implementation research for coding agents.**
 
-RepoMind helps coding agents stop inventing architecture from scratch and
-instead learn from real open-source implementations before you design.
+RepoMind helps coding agents learn from real public implementations before
+making an engineering decision. It can research implementation mechanisms,
+engineering patterns, workflows, interfaces, design rationale, trade-offs,
+evolution, and architecture.
 
-It helps Claude Code and Codex find repositories that solve problems similar
-to the system you are designing. It searches GitHub, evaluates architectural
-relevance, extracts transferable design patterns, and returns structured code
-cards that an agent can use during architecture work.
+It helps Claude Code and Codex answer a concrete research question with local
+cached evidence and, when needed, public GitHub repositories. It evaluates
+relevance, records traceable evidence as structured cards, and delivers a
+synthesized research report adapted to the current project.
 
 Instead of offering a generic list of popular projects, RepoMind asks a more
 useful question:
@@ -51,12 +52,38 @@ Use RepoMind when you need evidence and precedent for decisions such as:
 - comparing plugin, layered, event-driven, or service-based architectures;
 - defining interfaces between major subsystems;
 - understanding how mature projects evolved their architecture.
+- comparing concrete implementation mechanisms or engineering workflows;
+- investigating why a public project chose a design and how it evolved.
 
 ## What RepoMind is not for
 
-RepoMind is intentionally scoped to architecture research. It does not activate
-for narrow syntax questions, framework API usage, routine debugging, or
-requests such as “how do I implement `useState`?”
+RepoMind is scoped to reusable engineering research, not architecture alone.
+It does not activate for narrow syntax questions, single framework API usage,
+routine debugging, or requests such as “how do I implement `useState`?”
+
+## Predictable invocation
+
+An explicit query is authoritative: RepoMind researches it directly. Project
+files provide constraints and an adaptation target, but never replace or
+silently rewrite the question. Without a query, RepoMind proposes one recommended
+direction and 2–3 alternatives, then waits. You may edit a candidate, provide a
+free-form direction, request another set, or replace all candidates before any
+cache or GitHub research begins.
+
+| Project | Query supplied | Behavior |
+| --- | --- | --- |
+| New | No | Infer candidates from conversation and design material; wait for confirmation. |
+| New | Yes | Research the explicit query; use design material only as constraints. |
+| Existing | No | Prefer the current task, then lightly inspect relevant repository context; propose candidates. |
+| Existing | Yes | Research the explicit query; use the repository only for adaptation analysis. |
+
+Examples beyond architecture:
+
+```text
+Use RepoMind to compare how mature CLI tools implement resumable downloads.
+Use RepoMind to research design rationale for append-only event logs.
+Use RepoMind to find engineering patterns for safe plugin upgrade workflows.
+```
 
 ## Core capabilities
 
@@ -182,14 +209,14 @@ Use RepoMind to design a plugin-based event processing architecture.
 ## How it works
 
 ```text
-Architecture question
+Confirmed research question
         |
         v
 Intent and project-context analysis
         |
         v
-Project-local card search ----------------------+
-        | insufficient                           |
+Project-local card search and freshness check --+
+        | insufficient or due                    |
         v                                        |
 GitHub candidate discovery                       |
         |                                        |
@@ -202,8 +229,34 @@ Parallel repository analysis                     |
         v                                        |
 Deduplication and SQLite persistence              |
         |                                        |
-        +----------------> Code-card assembly <---+
+        +------------> Synthesized report <-------+
 ```
+
+Cache sufficiency depends on coverage of the question, distinct approaches,
+independent repositories, evidence quality, and freshness—not card count. Each
+source repository has an adaptive validation interval, configurable within the
+recommended 1–30 days. A repository not due is reused without network access.
+When due, an unchanged SHA preserves its cards; a localized relevant change
+refreshes only mapped cards; a global or unmappable change refreshes all cards
+for that repository. Replacements are atomic, so failed refreshes preserve the
+older evidence and disclose its state.
+
+The synthesized research report gives a direct answer, compares approaches,
+cites repository files or documents, explains constraints and trade-offs,
+adapts findings to the current project, and identifies evidence freshness. Its
+stable result envelope is:
+
+```text
+complete|partial|needs_clarification|out_of_scope|unavailable
+```
+
+## Cross-plugin collaboration
+
+RepoMind can supply evidence to another plugin without giving that plugin
+direct access to its database or helper. For example, a planning plugin can ask
+RepoMind to research task-queue cancellation, consume a `complete` or `partial`
+report, and remain responsible for the final plan. RepoMind owns research and
+provenance; the caller owns the design decision.
 
 The implementation is organized as a single portable Skill:
 
@@ -276,7 +329,9 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 The suite includes contract tests for the Skill package and a deterministic
 comparative usefulness evaluation. RepoMind-style answers must improve the
 derived total score by at least 30% over a generic baseline and must not
-regress on relevance or specificity.
+regress on relevance or specificity. The deterministic fixture is resolved
+from the repository root at `tests/fixtures/usefulness_cases.json`, so the test
+works regardless of the caller's current working directory.
 
 Validate the Claude Code plugin and marketplace:
 

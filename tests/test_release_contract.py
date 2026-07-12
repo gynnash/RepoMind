@@ -32,8 +32,49 @@ class ReleaseContractTests(unittest.TestCase):
     def test_readme_documents_usefulness_evaluation(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("comparative usefulness evaluation", readme.lower())
-        self.assertIn("tests/fixtures/usefulness_cases.json", readme)
+        fixture = "tests/fixtures/usefulness_cases.json"
+        self.assertIn(fixture, readme)
+        self.assertTrue((ROOT / fixture).is_file())
         self.assertIn("30%", readme)
+
+    def test_readme_documents_generalized_public_behavior(self):
+        readme = " ".join(
+            (ROOT / "README.md").read_text(encoding="utf-8").lower().split()
+        )
+        for phrase in (
+            "research implementation mechanisms, engineering patterns, workflows",
+            "replace all candidates",
+            "explicit query is authoritative",
+            "1–30 days",
+            "synthesized research report",
+            "complete|partial|needs_clarification|out_of_scope|unavailable",
+            "cross-plugin collaboration",
+        ):
+            self.assertIn(phrase, readme)
+
+    def test_readme_has_four_scenario_matrix(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        for row in (
+            "| New | No |",
+            "| New | Yes |",
+            "| Existing | No |",
+            "| Existing | Yes |",
+        ):
+            self.assertIn(row, readme)
+
+    def test_tutorial_covers_discovery_cache_refresh_and_partial_results(self):
+        tutorial = (ROOT / "docs" / "tutorial.md").read_text(encoding="utf-8").lower()
+        for phrase in (
+            "no-query discovery",
+            "new project with an explicit query",
+            "existing project with a non-architecture query",
+            "not due",
+            "unchanged sha",
+            "localized change",
+            "global or unmappable change",
+            'status="partial"',
+        ):
+            self.assertIn(phrase, tutorial)
 
 
 if __name__ == "__main__":

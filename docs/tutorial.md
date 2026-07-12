@@ -1,9 +1,8 @@
 # RepoMind Tutorial
 
-This tutorial walks through a complete RepoMind workflow in both Claude Code
-and Codex. You will install the plugin, run an architecture search, interpret
-the resulting code cards, reuse the local cache, and customize the search
-policy.
+This tutorial walks through RepoMind's generalized research workflow in both
+Claude Code and Codex: direction discovery, explicit questions, synthesized
+reports, adaptive cache validation, and collaboration with another plugin.
 
 The example task is:
 
@@ -12,9 +11,9 @@ The example task is:
 
 ## 1. Understand the goal
 
-RepoMind is an architecture research Skill. It is useful when you want to learn
-from real repositories before committing to module boundaries, data flow,
-interfaces, or system-level design patterns.
+RepoMind is an open-source implementation research Skill. Use it to investigate
+implementation mechanisms, workflows, interfaces, rationale, trade-offs,
+evolution, architecture, and other reusable engineering patterns.
 
 It is not a general GitHub search assistant. A good RepoMind request names an
 architectural concern:
@@ -126,7 +125,19 @@ priorities, retries, persistent state, and pluggable execution backends.
 RepoMind can also activate automatically when a request clearly asks for
 architecture research.
 
-## 4. Run the first architecture search
+## 4. Try the invocation scenarios
+
+### No-query discovery
+
+Invoke RepoMind without a question while discussing a new design. It derives
+one recommended direction and 2–3 alternatives from the conversation and
+design materials. In an existing project it prefers the current task, then may
+inspect only relevant README, plan, manifest, or code context. Research has not
+started yet: edit a candidate, enter a free-form direction, ask for another
+set, or replace all candidates. RepoMind waits for confirmation before reading
+the cache or contacting GitHub.
+
+### New project with an explicit query
 
 ### Claude Code request
 
@@ -142,7 +153,9 @@ Use RepoMind to design a multi-agent task scheduler with priorities, retries,
 persistent state, and pluggable execution backends.
 ```
 
-On a new project, the local card database is empty. RepoMind should report its
+The query is authoritative. Project material may constrain the answer but does
+not broaden, narrow, or replace the research goal. On a new project, the local
+card database is empty. RepoMind should report its
 progress through these stages:
 
 1. Parse the architecture intent and inspect the current project.
@@ -156,10 +169,24 @@ progress through these stages:
 GitHub commands remain subject to your normal Claude Code or Codex permission
 settings. Review the proposed commands before approving them.
 
-## 5. Read a code card
+### Existing project with a non-architecture query
 
-RepoMind returns XML-wrapped Markdown so another coding agent can reliably
-identify each card:
+RepoMind also handles reusable engineering questions such as:
+
+```text
+Use RepoMind to compare how established Python CLIs implement resumable,
+idempotent downloads and explain the trade-offs for this project.
+```
+
+It researches that mechanism directly and uses the existing repository only
+to adapt findings. Narrow API usage and routine debugging remain out of scope.
+
+## 5. Read the synthesized report
+
+RepoMind returns a synthesized answer, not merely raw cards. It summarizes the
+conclusion, compares implementation routes, cites public files or documents,
+explains trade-offs and limitations, adapts findings without changing the
+question, and labels evidence freshness. Cards remain traceable evidence:
 
 ```xml
 <repo-card
@@ -236,7 +263,7 @@ Draft module boundaries and interfaces, citing the relevant RepoMind cards.
 The strongest workflow is research first, synthesis second, implementation
 planning third.
 
-## 7. Reuse the local cache
+## 7. Reuse and refresh the local cache
 
 RepoMind stores generated cards at:
 
@@ -250,16 +277,39 @@ Run a related request from the same project:
 Use RepoMind to compare persistent task-state models for the scheduler.
 ```
 
-RepoMind checks local cards before calling GitHub. With a small cache it uses
-keyword matching; with a larger cache it asks the model to score card
-relevance. If enough cards match, it can answer without another repository
-search.
+RepoMind checks local cards before GitHub and judges sufficiency by question
+coverage, distinct approaches, independent repositories, evidence quality, and
+freshness. Card count alone is insufficient.
 
-Cards older than the configured freshness period are marked stale. RepoMind
-should ask whether you want to refresh them rather than silently replacing
-them.
+Freshness is tracked per source repository on an adaptive schedule, normally
+bounded to 1–30 days. If a matching repository is not due, its cards are reused
+without network access. When it is due:
 
-## 8. Customize RepoMind
+- an unchanged SHA updates only the check schedule and reuses every card;
+- a localized change regenerates only cards mapped to affected evidence;
+- a global or unmappable change regenerates all cards for that repository;
+- an unrelated change updates the snapshot without rewriting cards.
+
+Replacement is atomic. If validation or generation fails, old evidence remains
+available but is marked unverified, `refresh_failed`, or `refresh_required`
+rather than presented as freshly checked.
+
+## 8. Collaborate with another plugin
+
+A planning or brainstorming plugin can call RepoMind with a structured research
+request and consume its report. It should handle all five states:
+
+```xml
+<repomind-result status="complete|partial|needs_clarification|out_of_scope|unavailable">
+```
+
+In particular, `status="partial"` means useful evidence exists but coverage or
+freshness is insufficient. The caller may use it with that limitation, ask a
+follow-up question, or continue its own work; it must not present partial
+evidence as complete. The caller owns the final decision, while RepoMind owns
+research, cache validation, and provenance.
+
+## 9. Customize RepoMind
 
 Bundled defaults work for most projects. To override them, create:
 
@@ -273,7 +323,8 @@ For example:
 {
   "max_search_repos": 12,
   "min_relevance_score": 4.0,
-  "card_staleness_months": 3
+  "freshness_min_days": 2,
+  "freshness_max_days": 21
 }
 ```
 
@@ -287,15 +338,18 @@ Available settings:
 | `max_search_repos` | Maximum GitHub candidates | `20` |
 | `min_relevance_score` | Fine-filter acceptance score | `3.5` |
 | `card_similarity_threshold` | Duplicate-card threshold | `0.7` |
-| `card_staleness_months` | Card freshness period | `6` |
 | `empty_query_ttl_hours` | Empty-search suppression period | `24` |
-| `mandatory_dimensions` | Cards generated for every accepted repo | architecture, design patterns, data flow |
-| `optional_dimensions` | Cards generated only when evidence exists | interfaces, stack, deployment, evolution |
+| `freshness_min_days` | Minimum adaptive check interval | `1` |
+| `freshness_max_days` | Maximum adaptive check interval | `30` |
+| `freshness_default_days` | Interval used with insufficient history | `7` |
+| `freshness_commit_sample_size` | Recent commits sampled for cadence | `20` |
+| `freshness_stability_growth` | Multiplier after stable checks | `1.5` |
+| `freshness_change_decay` | Multiplier after a global relevant change | `0.5` |
 
 Use a higher relevance threshold for focused research. Reduce
 `max_search_repos` when you want a faster, narrower search.
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 ### GitHub authentication fails
 
@@ -364,7 +418,7 @@ Back up this directory before rebuilding:
 The database contains locally generated research cards. Removing it discards
 the cache but does not change your project source code.
 
-## 10. Next steps
+## 11. Next steps
 
 Try RepoMind on a real architecture decision from your project:
 
