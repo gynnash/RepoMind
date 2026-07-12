@@ -3,10 +3,13 @@
 **Architecture research for coding agents, grounded in real open-source
 implementations.**
 
-RepoMind helps Claude Code and Codex find repositories that solve problems
-similar to the system you are designing. It searches GitHub, evaluates
-architectural relevance, extracts transferable design patterns, and returns
-structured code cards that an agent can use during architecture work.
+RepoMind helps coding agents stop inventing architecture from scratch and
+instead learn from real open-source implementations before you design.
+
+It helps Claude Code and Codex find repositories that solve problems similar
+to the system you are designing. It searches GitHub, evaluates architectural
+relevance, extracts transferable design patterns, and returns structured code
+cards that an agent can use during architecture work.
 
 Instead of offering a generic list of popular projects, RepoMind asks a more
 useful question:
@@ -23,6 +26,21 @@ RepoMind is distributed from one source as:
 For a complete end-to-end walkthrough, see the
 [RepoMind Tutorial](docs/tutorial.md).
 
+## Quick start
+
+Install the Codex plugin:
+
+```bash
+codex plugin marketplace add gynnash/RepoMind --ref main
+codex plugin add repomind@repomind
+```
+
+Start a new Codex thread after installation, then ask:
+
+```text
+Use RepoMind to find reusable architectures for a multi-agent task scheduler.
+```
+
 ## What RepoMind is for
 
 Use RepoMind when you need evidence and precedent for decisions such as:
@@ -33,6 +51,8 @@ Use RepoMind when you need evidence and precedent for decisions such as:
 - comparing plugin, layered, event-driven, or service-based architectures;
 - defining interfaces between major subsystems;
 - understanding how mature projects evolved their architecture.
+
+## What RepoMind is not for
 
 RepoMind is intentionally scoped to architecture research. It does not activate
 for narrow syntax questions, framework API usage, routine debugging, or
@@ -48,6 +68,38 @@ requests such as “how do I implement `useState`?”
   source references, and limitations.
 - **Local-first caching:** reuses project-local cards, detects stale results,
   and avoids duplicate conclusions.
+
+## Example output
+
+A RepoMind card summarizes why a repository is relevant, what design choices it
+uses, which files support the conclusion, and what should not be copied
+directly.
+
+```xml
+<repo-card
+  repo="example/scheduler"
+  dimension="architecture"
+  relevance="4.5">
+
+### architecture
+
+#### Overview
+Uses a small control plane to persist task state and dispatch work to pluggable
+executors.
+
+#### Transferable Patterns
+- Keep scheduling decisions separate from execution backends.
+- Model retries as explicit task-state transitions.
+
+#### Source References
+- `internal/scheduler/state.go`
+- `internal/executor/registry.go`
+
+#### Limitations
+The worker model assumes a single-region deployment and should be adapted for
+distributed coordination.
+</repo-card>
+```
 
 ## Requirements
 
@@ -65,21 +117,6 @@ RepoMind has no Python package dependencies; its helper uses only the standard
 library.
 
 ## Installation
-
-### Claude Code plugin
-
-Add the GitHub repository as a marketplace and install the plugin:
-
-```bash
-claude plugin marketplace add gynnash/RepoMind
-claude plugin install repomind@repomind
-```
-
-Invoke the namespaced plugin skill:
-
-```text
-/repomind:repomind design an agent scheduling layer with priority queues
-```
 
 ### Codex plugin
 
@@ -100,6 +137,21 @@ Example:
 Use RepoMind to find reusable architectures for a multi-agent task scheduler.
 ```
 
+### Claude Code plugin
+
+Add the GitHub repository as a marketplace and install the plugin:
+
+```bash
+claude plugin marketplace add gynnash/RepoMind
+claude plugin install repomind@repomind
+```
+
+Invoke the namespaced plugin skill:
+
+```text
+/repomind:repomind design an agent scheduling layer with priority queues
+```
+
 ### Standalone Agent Skill
 
 Clone the repository and copy the canonical Skill directory into either host:
@@ -115,10 +167,16 @@ cp -R plugins/repomind/skills/repomind ~/.claude/skills/
 cp -R plugins/repomind/skills/repomind ~/.codex/skills/
 ```
 
-The standalone Claude Code command is:
+In Claude Code, the standalone command is:
 
 ```text
 /repomind design a plugin-based event processing architecture
+```
+
+In Codex, ask directly:
+
+```text
+Use RepoMind to design a plugin-based event processing architecture.
 ```
 
 ## How it works
@@ -187,30 +245,6 @@ To override bundled defaults, create:
 Only include values you want to change. RepoMind validates configuration keys,
 types, and ranges before using them.
 
-## Development and validation
-
-Run the complete test suite:
-
-```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
-```
-
-The suite includes a deterministic comparative usefulness evaluation in
-`tests/fixtures/usefulness_cases.json`. It defines three architecture-research
-prompts, a generic no-RepoMind baseline output, and a RepoMind-style output
-assembled from recorded code-card fields. The test code derives scores from
-the text using a five-part rubric: relevance, specificity, implementation
-guidance, applicability explanation, and anti-hallucination. Each RepoMind
-answer must improve the derived total score by at least 30% and must not
-regress on relevance or specificity.
-
-Validate the Claude Code plugin and marketplace:
-
-```bash
-claude plugin validate ./plugins/repomind
-claude plugin validate .
-```
-
 ## Open-source policy
 
 RepoMind is open source under the [MIT License](LICENSE). You may use, copy,
@@ -230,3 +264,23 @@ RepoMind analyzes third-party repositories but does not relicense their source
 code. Code cards should summarize architectural ideas and cite source paths;
 users remain responsible for complying with the licenses of referenced
 projects.
+
+## Development and validation
+
+Run the complete test suite:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
+```
+
+The suite includes contract tests for the Skill package and a deterministic
+comparative usefulness evaluation. RepoMind-style answers must improve the
+derived total score by at least 30% over a generic baseline and must not
+regress on relevance or specificity.
+
+Validate the Claude Code plugin and marketplace:
+
+```bash
+claude plugin validate ./plugins/repomind
+claude plugin validate .
+```
