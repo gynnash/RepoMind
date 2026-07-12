@@ -3,7 +3,6 @@
 
 from datetime import datetime, timezone
 from statistics import median
-from pathlib import PurePosixPath
 
 
 SECONDS_PER_DAY = 24 * 60 * 60
@@ -11,9 +10,16 @@ SECONDS_PER_DAY = 24 * 60 * 60
 
 def _normalize_path(path):
     value = str(path).replace("\\", "/").strip()
-    while value.startswith("./"):
-        value = value[2:]
-    return str(PurePosixPath(value)).strip("/") if value else ""
+    parts = []
+    for part in value.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(part)
+    return "/".join(parts)
 
 
 def _paths_overlap(left, right):
@@ -33,6 +39,8 @@ def classify_repository_change(observation):
 
     paths = sorted({_normalize_path(path)
                     for path in observation.get("changed_paths", []) if _normalize_path(path)})
+    deleted = sorted({_normalize_path(path)
+                      for path in observation.get("deleted_paths", []) if _normalize_path(path)})
     architecture = bool(observation.get("architecture_changed"))
     structure = bool(observation.get("structure_changed"))
     key_dirs = [_normalize_path(path) for path in observation.get("key_directories", [])]
@@ -48,11 +56,10 @@ def classify_repository_change(observation):
 
     relevant = list(observation.get("evidence_paths", [])) + list(
         observation.get("module_paths", observation.get("related_modules", [])))
-    affected = sorted(path for path in paths
+    affected = sorted(path for path in set(paths + deleted)
                       if any(_paths_overlap(path, target) for target in relevant))
     if affected:
         reasons = ["relevant_path_changed"]
-        deleted = observation.get("deleted_paths", [])
         if any(any(_paths_overlap(path, target) for target in relevant)
                for path in deleted):
             reasons.insert(0, "evidence_deleted")

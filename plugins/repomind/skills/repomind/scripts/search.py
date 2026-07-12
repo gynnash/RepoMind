@@ -527,9 +527,16 @@ def insert_card(data):
 
 def _normalized_path(value):
     value = str(value).replace("\\", "/").strip()
-    while value.startswith("./"):
-        value = value[2:]
-    return value.strip("/")
+    parts = []
+    for part in value.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(part)
+    return "/".join(parts)
 
 
 def _path_overlap(left, right):
@@ -825,7 +832,7 @@ def _parser():
     record_check = subparsers.add_parser("record-repo-check")
     record_check.add_argument("data")
     affected = subparsers.add_parser("affected-cards")
-    affected.add_argument("repo_id")
+    affected.add_argument("data")
     affected.add_argument("paths", nargs="*")
     refresh = subparsers.add_parser("refresh-cards")
     refresh.add_argument("data")
@@ -883,7 +890,16 @@ def run_command(args):
     if command == "record-repo-check":
         return record_repository_check(_json_argument(args.data))
     if command == "affected-cards":
-        return {"card_ids": affected_card_ids(_card_ids([args.repo_id])[0], args.paths)}
+        if args.data == "-" or args.data.lstrip().startswith("{"):
+            data = _json_argument(args.data)
+            repo_id = _card_ids([data.get("repo_id")])[0]
+            paths = data.get("paths")
+            if not isinstance(paths, list):
+                raise ValueError("paths must be an array")
+        else:
+            repo_id = _card_ids([args.data])[0]
+            paths = args.paths
+        return {"card_ids": affected_card_ids(repo_id, paths)}
     if command == "refresh-cards":
         return refresh_cards_atomically(_json_argument(args.data))
     if command == "check-similar":

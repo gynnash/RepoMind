@@ -98,6 +98,25 @@ class FreshnessTests(unittest.TestCase):
         self.assertEqual(result["kind"], "localized")
         self.assertEqual(result["affected_paths"], ["src/core/engine.py"])
 
+    def test_deleted_only_evidence_is_localized(self):
+        result = self.freshness.classify_repository_change({
+            "previous_head_sha": "abc", "head_sha": "def",
+            "changed_paths": [],
+            "deleted_paths": ["src/core/engine.py"],
+            "evidence_paths": ["src/core/engine.py"],
+        })
+        self.assertEqual(result["kind"], "localized")
+        self.assertEqual(result["affected_paths"], ["src/core/engine.py"])
+
+    def test_canonical_equivalent_paths_match(self):
+        result = self.freshness.classify_repository_change({
+            "previous_head_sha": "abc", "head_sha": "def",
+            "changed_paths": ["./src//core/../core/engine.py"],
+            "evidence_paths": ["src/core/engine.py"],
+        })
+        self.assertEqual(result["kind"], "localized")
+        self.assertEqual(result["affected_paths"], ["src/core/engine.py"])
+
     def test_architecture_and_structure_change_is_global(self):
         result = self.freshness.classify_repository_change({
             "previous_head_sha": "abc", "head_sha": "def",

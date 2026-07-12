@@ -288,6 +288,18 @@ class SearchTests(unittest.TestCase):
         )
         self.assertNotIn(second_id, self.search.affected_card_ids(repo_id, ["src/core"]))
 
+    def test_affected_cards_match_canonical_equivalent_paths(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        card = self.card_data(repo_id)
+        card["evidence_paths"] = ["src/core/engine.py"]
+        card_id = self.search.insert_card(card)
+        self.assertEqual(
+            self.search.affected_card_ids(
+                repo_id, ["./src//api/../core/./engine.py"]
+            ),
+            [card_id],
+        )
+
     def test_refresh_replaces_only_requested_card_and_preserves_identity(self):
         repo_id = self.search.insert_repo(self.repo_data())
         first_id = self.search.insert_card(self.card_data(repo_id))
@@ -553,6 +565,27 @@ class CliTests(unittest.TestCase):
         )
         self.assertEqual(refreshed.returncode, 0, refreshed.stdout)
         self.assertEqual(json.loads(refreshed.stdout)["card_ids"], [card_id])
+
+    def test_affected_cards_accepts_json_stdin(self):
+        repo = self.run_cli(
+            "insert-repo", "-",
+            stdin=json.dumps({"full_name": "a/b", "url": "https://github.com/a/b"}),
+        )
+        repo_id = json.loads(repo.stdout)["repo_id"]
+        card = self.run_cli(
+            "insert-card", "-",
+            stdin=json.dumps({
+                "repo_id": repo_id, "dimension": "architecture", "title": "Old",
+                "content": "Evidence", "evidence_paths": ["src/core.py"],
+            }),
+        )
+        card_id = json.loads(card.stdout)["card_id"]
+        affected = self.run_cli(
+            "affected-cards", "-",
+            stdin=json.dumps({"repo_id": repo_id, "paths": ["src"]}),
+        )
+        self.assertEqual(affected.returncode, 0, affected.stdout)
+        self.assertEqual(json.loads(affected.stdout), {"card_ids": [card_id]})
 
     def test_cli_validation_errors_are_json(self):
         cases = [
