@@ -30,26 +30,7 @@ class SearchTests(unittest.TestCase):
         self.home.mkdir()
         self.config_path = self.home / "config.json"
         self.config_path.write_text(
-            json.dumps(
-                {
-                    "max_search_repos": 20,
-                    "min_relevance_score": 3.5,
-                    "card_similarity_threshold": 0.7,
-                    "card_staleness_months": 6,
-                    "empty_query_ttl_hours": 24,
-                    "mandatory_dimensions": [
-                        "architecture",
-                        "design_patterns",
-                        "data_flow",
-                    ],
-                    "optional_dimensions": [
-                        "interface_design",
-                        "tech_stack",
-                        "deployment",
-                        "evolution_history",
-                    ],
-                }
-            ),
+            "{}",
             encoding="utf-8",
         )
         self.search = load_search()
@@ -83,6 +64,83 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(self.search.get_card_count(), 0)
         self.assertEqual(self.search.search_cards_v1(["scheduler"]), [])
         self.assertEqual(self.search.get_all_cards_with_repo(), [])
+
+    def test_adaptive_freshness_defaults(self):
+        config = self.search.load_config()
+        self.assertEqual(config["freshness_min_days"], 1)
+        self.assertEqual(config["freshness_max_days"], 30)
+        self.assertEqual(config["freshness_default_days"], 7)
+        self.assertEqual(config["freshness_commit_sample_size"], 20)
+        self.assertEqual(config["freshness_stability_growth"], 1.5)
+        self.assertEqual(config["freshness_change_decay"], 0.5)
+        self.assertNotIn("card_staleness_months", config)
+        self.assertNotIn("mandatory_dimensions", config)
+
+    def test_freshness_bounds_are_validated(self):
+        self.config_path.write_text(
+            json.dumps({"freshness_default_days": 31}), encoding="utf-8"
+        )
+        with self.assertRaisesRegex(ValueError, "freshness_min_days <="):
+            self.search.load_config()
+
+    def test_schema_v2_adds_snapshot_and_evidence_fields(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        card_id = self.search.insert_card(self.card_data(repo_id))
+        with self.search.connect_db() as conn:
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 2)
+            repo = dict(
+                conn.execute("SELECT * FROM repos WHERE id=?", (repo_id,)).fetchone()
+            )
+            card = dict(
+                conn.execute("SELECT * FROM cards WHERE id=?", (card_id,)).fetchone()
+            )
+        self.assertIsNone(repo["last_head_sha"])
+        self.assertEqual(repo["check_interval_days"], 7.0)
+        self.assertEqual(card["freshness_status"], "unknown")
+        self.assertEqual(card["evidence_paths"], "[]")
+
+    def test_schema_v2_migration_preserves_legacy_data(self):
+        database = self.home / "repomind.db"
+        conn = sqlite3.connect(database)
+        conn.executescript(
+            """
+            CREATE TABLE repos (
+                id INTEGER PRIMARY KEY,
+                full_name TEXT UNIQUE NOT NULL,
+                url TEXT NOT NULL,
+                language TEXT,
+                topics TEXT,
+                stars INTEGER,
+                description TEXT,
+                fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE cards (
+                id INTEGER PRIMARY KEY,
+                repo_id INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+                dimension TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                keywords TEXT,
+                embedding BLOB,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            INSERT INTO repos (id, full_name, url) VALUES (4, 'legacy/repo', 'url');
+            INSERT INTO cards (id, repo_id, dimension, title, content)
+            VALUES (8, 4, 'architecture', 'legacy card', 'preserve me');
+            PRAGMA user_version = 1;
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        with self.search.connect_db() as migrated:
+            self.assertEqual(migrated.execute("PRAGMA user_version").fetchone()[0], 2)
+            repo = dict(migrated.execute("SELECT * FROM repos WHERE id=4").fetchone())
+            card = dict(migrated.execute("SELECT * FROM cards WHERE id=8").fetchone())
+        self.assertEqual(repo["full_name"], "legacy/repo")
+        self.assertEqual(card["content"], "preserve me")
+        self.assertEqual(repo["check_interval_days"], 7.0)
+        self.assertEqual(card["evidence_paths"], "[]")
 
     def test_existing_repo_is_refreshed(self):
         repo_id = self.search.insert_repo(self.repo_data(stars=1))
@@ -152,7 +210,7 @@ class SearchTests(unittest.TestCase):
 
         with self.search.connect_db() as conn:
             conn.execute(
-                "UPDATE repos SET fetched_at = datetime('now', '-7 months') WHERE id = ?",
+                "UPDATE repos SET fetched_at = datetime('now', '-31 days') WHERE id = ?",
                 (repo_id,),
             )
         stale = self.search.get_cards_by_ids([1])[0]
@@ -238,10 +296,13 @@ class CliTests(unittest.TestCase):
             "max_search_repos": 20,
             "min_relevance_score": 3.5,
             "card_similarity_threshold": 0.7,
-            "card_staleness_months": 6,
             "empty_query_ttl_hours": 24,
-            "mandatory_dimensions": ["architecture", "design_patterns", "data_flow"],
-            "optional_dimensions": [],
+            "freshness_min_days": 1,
+            "freshness_max_days": 30,
+            "freshness_default_days": 7,
+            "freshness_commit_sample_size": 20,
+            "freshness_stability_growth": 1.5,
+            "freshness_change_decay": 0.5,
         }
         (config_dir / "defaults.json").write_text(
             json.dumps(self.config), encoding="utf-8"
@@ -375,7 +436,7 @@ class CliTests(unittest.TestCase):
         state = project / ".repomind"
         state.mkdir(parents=True)
         (state / "config.json").write_text(
-            json.dumps({"mandatory_dimensions": None}), encoding="utf-8"
+            json.dumps({"freshness_min_days": 31}), encoding="utf-8"
         )
         result = subprocess.run(
             [
@@ -383,22 +444,14 @@ class CliTests(unittest.TestCase):
                 str(self.script),
                 "--project-root",
                 str(project),
-                "insert-card",
-                json.dumps(
-                    {
-                        "repo_id": 1,
-                        "dimension": "architecture",
-                        "title": "x",
-                        "content": "x",
-                    }
-                ),
+                "config",
             ],
             text=True,
             capture_output=True,
             env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
         )
         self.assertEqual(result.returncode, 1)
-        self.assertIn("mandatory_dimensions", json.loads(result.stdout)["error"])
+        self.assertIn("freshness_min_days", json.loads(result.stdout)["error"])
         self.assertEqual(result.stderr, "")
 
     def test_unknown_project_config_key_is_rejected(self):

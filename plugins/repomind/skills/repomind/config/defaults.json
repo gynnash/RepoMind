@@ -2,8 +2,11 @@
   "max_search_repos": 20,
   "min_relevance_score": 3.5,
   "card_similarity_threshold": 0.7,
-  "card_staleness_months": 6,
   "empty_query_ttl_hours": 24,
-  "mandatory_dimensions": ["architecture", "design_patterns", "data_flow"],
-  "optional_dimensions": ["interface_design", "tech_stack", "deployment", "evolution_history"]
+  "freshness_min_days": 1,
+  "freshness_max_days": 30,
+  "freshness_default_days": 7,
+  "freshness_commit_sample_size": 20,
+  "freshness_stability_growth": 1.5,
+  "freshness_change_decay": 0.5
 }

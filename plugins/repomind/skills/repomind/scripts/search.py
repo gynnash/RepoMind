@@ -14,6 +14,7 @@ import sys
 SKILL_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = SKILL_DIR / "config" / "defaults.json"
 DB_NAME = "repomind.db"
+SCHEMA_VERSION = 2
 
 
 def discover_project_root():
@@ -121,35 +122,24 @@ def _validate_config(config, source):
                 f"{minimum}..{maximum}"
             )
 
-    def require_dimensions(name, allow_empty):
-        value = config.get(name)
-        if (
-            not isinstance(value, list)
-            or (not allow_empty and not value)
-            or any(not isinstance(item, str) or not item.strip() for item in value)
-            or len(value) != len(set(value))
-        ):
-            requirement = "a list of unique non-empty strings"
-            if not allow_empty:
-                requirement = f"a non-empty {requirement}"
-            raise ValueError(
-                f"Invalid {source} field {name}: expected {requirement}"
-            )
-
     require_integer("max_search_repos", 1, 100)
     require_number("min_relevance_score", 0, 5)
     require_number("card_similarity_threshold", 0, 1)
-    require_integer("card_staleness_months", 1, 120)
     require_integer("empty_query_ttl_hours", 1, 8760)
-    require_dimensions("mandatory_dimensions", allow_empty=False)
-    require_dimensions("optional_dimensions", allow_empty=True)
-    overlap = set(config["mandatory_dimensions"]) & set(
-        config["optional_dimensions"]
-    )
-    if overlap:
+    require_number("freshness_min_days", 0.01, 3650)
+    require_number("freshness_max_days", 0.01, 3650)
+    require_number("freshness_default_days", 0.01, 3650)
+    require_integer("freshness_commit_sample_size", 1, 1000)
+    require_number("freshness_stability_growth", 1, 10)
+    require_number("freshness_change_decay", 0.01, 1)
+    if not (
+        config["freshness_min_days"]
+        <= config["freshness_default_days"]
+        <= config["freshness_max_days"]
+    ):
         raise ValueError(
-            f"Invalid {source}: dimensions appear in both lists: "
-            f"{', '.join(sorted(overlap))}"
+            f"Invalid {source}: expected freshness_min_days <= "
+            "freshness_default_days <= freshness_max_days"
         )
 
 
@@ -164,7 +154,18 @@ def _create_schema(conn):
             topics      TEXT,
             stars       INTEGER,
             description TEXT,
-            fetched_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            fetched_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            last_head_sha TEXT,
+            default_branch TEXT,
+            readme_digest TEXT,
+            architecture_digest TEXT,
+            structure_digest TEXT,
+            last_checked_at TEXT,
+            last_changed_at TEXT,
+            next_check_at TEXT,
+            check_interval_days REAL NOT NULL DEFAULT 7.0,
+            stability_runs INTEGER NOT NULL DEFAULT 0,
+            commit_intervals TEXT NOT NULL DEFAULT '[]'
         );
 
         CREATE TABLE IF NOT EXISTS cards (
@@ -175,7 +176,13 @@ def _create_schema(conn):
             content     TEXT NOT NULL,
             keywords    TEXT,
             embedding   BLOB,
-            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            research_object TEXT,
+            evidence_paths TEXT NOT NULL DEFAULT '[]',
+            related_modules TEXT NOT NULL DEFAULT '[]',
+            source_sha TEXT,
+            freshness_status TEXT NOT NULL DEFAULT 'unknown',
+            card_updated_at TEXT
         );
 
         CREATE TABLE IF NOT EXISTS search_history (
@@ -184,6 +191,39 @@ def _create_schema(conn):
         );
         """
     )
+
+
+def _add_missing_columns(conn, table, definitions):
+    existing = {
+        row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    for name, definition in definitions:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
+def _migrate_schema_v2(conn):
+    _add_missing_columns(conn, "repos", (
+        ("language", "TEXT"), ("topics", "TEXT"), ("stars", "INTEGER"),
+        ("description", "TEXT"), ("fetched_at", "TEXT"),
+        ("last_head_sha", "TEXT"), ("default_branch", "TEXT"),
+        ("readme_digest", "TEXT"), ("architecture_digest", "TEXT"),
+        ("structure_digest", "TEXT"), ("last_checked_at", "TEXT"),
+        ("last_changed_at", "TEXT"), ("next_check_at", "TEXT"),
+        ("check_interval_days", "REAL NOT NULL DEFAULT 7.0"),
+        ("stability_runs", "INTEGER NOT NULL DEFAULT 0"),
+        ("commit_intervals", "TEXT NOT NULL DEFAULT '[]'"),
+    ))
+    _add_missing_columns(conn, "cards", (
+        ("keywords", "TEXT"), ("embedding", "BLOB"), ("created_at", "TEXT"),
+        ("research_object", "TEXT"),
+        ("evidence_paths", "TEXT NOT NULL DEFAULT '[]'"),
+        ("related_modules", "TEXT NOT NULL DEFAULT '[]'"),
+        ("source_sha", "TEXT"),
+        ("freshness_status", "TEXT NOT NULL DEFAULT 'unknown'"),
+        ("card_updated_at", "TEXT"),
+    ))
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
 def _migrate_nullable_repo_id(conn):
@@ -242,6 +282,7 @@ def connect_db():
         conn.execute("PRAGMA journal_mode=WAL")
         _create_schema(conn)
         _migrate_nullable_repo_id(conn)
+        _migrate_schema_v2(conn)
         conn.commit()
         return conn
     except Exception:
@@ -318,18 +359,11 @@ def reset_db():
     init_db()
 
 
-def _allowed_dimensions():
-    config = load_config()
-    return set(config["mandatory_dimensions"]) | set(config["optional_dimensions"])
-
-
 def _validate_card(data):
     required = ("repo_id", "dimension", "title", "content")
     missing = [key for key in required if data.get(key) in (None, "")]
     if missing:
         raise ValueError(f"Missing card field(s): {', '.join(missing)}")
-    if data["dimension"] not in _allowed_dimensions():
-        raise ValueError(f"Unknown card dimension: {data['dimension']}")
 
 
 def _insert_card(conn, data):
@@ -421,8 +455,8 @@ def insert_card_if_new(data):
 
 
 def _stale_expression():
-    months = int(load_config()["card_staleness_months"])
-    return f"-{months} months"
+    days = float(load_config()["freshness_max_days"])
+    return f"-{days:g} days"
 
 
 def _serialize_rows(rows):
