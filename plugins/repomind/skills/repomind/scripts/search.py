@@ -497,8 +497,11 @@ def _validate_card(data):
 def _insert_card(conn, data):
     cur = conn.execute(
         """
-        INSERT INTO cards (repo_id, dimension, title, content, keywords)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO cards
+            (repo_id, dimension, title, content, keywords, research_object,
+             evidence_paths, related_modules, source_sha, freshness_status,
+             card_updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             data["repo_id"],
@@ -506,6 +509,11 @@ def _insert_card(conn, data):
             data["title"],
             data["content"],
             data.get("keywords"),
+            data.get("research_object"),
+            json.dumps(data.get("evidence_paths", []), ensure_ascii=False),
+            json.dumps(data.get("related_modules", []), ensure_ascii=False),
+            data.get("source_sha"), data.get("freshness_status", "unknown"),
+            data.get("card_updated_at"),
         ),
     )
     return cur.lastrowid
@@ -515,6 +523,90 @@ def insert_card(data):
     _validate_card(data)
     with connect_db() as conn:
         return _insert_card(conn, data)
+
+
+def _normalized_path(value):
+    value = str(value).replace("\\", "/").strip()
+    while value.startswith("./"):
+        value = value[2:]
+    return value.strip("/")
+
+
+def _path_overlap(left, right):
+    left, right = _normalized_path(left), _normalized_path(right)
+    return bool(left and right) and (
+        left == right or left.startswith(right + "/") or right.startswith(left + "/")
+    )
+
+
+def affected_card_ids(repo_id, paths):
+    """Return cards whose evidence or module paths overlap changed paths."""
+    changed = [_normalized_path(path) for path in paths]
+    with connect_db() as conn:
+        rows = conn.execute(
+            "SELECT id, evidence_paths, related_modules FROM cards WHERE repo_id=? ORDER BY id",
+            (repo_id,),
+        ).fetchall()
+    affected = []
+    for row in rows:
+        references = json.loads(row["evidence_paths"] or "[]") + json.loads(
+            row["related_modules"] or "[]")
+        if any(_path_overlap(path, reference) for path in changed for reference in references):
+            affected.append(row["id"])
+    return affected
+
+
+def refresh_cards_atomically(data):
+    """Replace selected cards and update the repository snapshot in one transaction."""
+    if data.get("repo_id") is None:
+        raise ValueError("Missing repo field: repo_id")
+    replacements = data.get("replacements")
+    if not isinstance(replacements, list):
+        raise ValueError("replacements must be an array")
+    for replacement in replacements:
+        _validate_card(replacement)
+        if replacement.get("id") is None:
+            raise ValueError("Missing card field: id")
+        if replacement["repo_id"] != data["repo_id"]:
+            raise ValueError("Replacement card repository does not match refresh repository")
+    updated_at = _utc_text(data.get("updated_at"))
+    status = data.get("status", "fresh")
+    conn = connect_db()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT 1 FROM repos WHERE id=?", (data["repo_id"],)).fetchone() is None:
+            raise ValueError(f"Repository not found: {data['repo_id']}")
+        for card in replacements:
+            result = conn.execute(
+                """UPDATE cards SET dimension=?, title=?, content=?, keywords=?,
+                       research_object=?, evidence_paths=?, related_modules=?, source_sha=?,
+                       freshness_status=?, card_updated_at=?
+                   WHERE id=? AND repo_id=?""",
+                (card["dimension"], card["title"], card["content"], card.get("keywords"),
+                 card.get("research_object"), json.dumps(card.get("evidence_paths", [])),
+                 json.dumps(card.get("related_modules", [])), data.get("head_sha"), status,
+                 updated_at, card["id"], data["repo_id"]),
+            )
+            if result.rowcount != 1:
+                raise ValueError(f"Card not found in repository: {card['id']}")
+        conn.execute(
+            """UPDATE repos SET last_head_sha=?, last_checked_at=?, last_changed_at=?,
+                   readme_digest=COALESCE(?, readme_digest),
+                   architecture_digest=COALESCE(?, architecture_digest),
+                   structure_digest=COALESCE(?, structure_digest)
+               WHERE id=?""",
+            (data.get("head_sha"), updated_at, updated_at, data.get("readme_digest"),
+             data.get("architecture_digest"), data.get("structure_digest"), data["repo_id"]),
+        )
+        conn.commit()
+        return {"repo_id": data["repo_id"], "card_ids": [c["id"] for c in replacements],
+                "head_sha": data.get("head_sha"), "status": status,
+                "updated_at": updated_at}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def _tokens(value):
@@ -732,6 +824,11 @@ def _parser():
     repos.add_argument("card_ids", nargs="*")
     record_check = subparsers.add_parser("record-repo-check")
     record_check.add_argument("data")
+    affected = subparsers.add_parser("affected-cards")
+    affected.add_argument("repo_id")
+    affected.add_argument("paths", nargs="*")
+    refresh = subparsers.add_parser("refresh-cards")
+    refresh.add_argument("data")
     similar = subparsers.add_parser("check-similar")
     similar.add_argument("title")
     similar.add_argument("keywords", nargs="?", default="")
@@ -785,6 +882,10 @@ def run_command(args):
         return get_repositories_for_cards(_card_ids(args.card_ids))
     if command == "record-repo-check":
         return record_repository_check(_json_argument(args.data))
+    if command == "affected-cards":
+        return {"card_ids": affected_card_ids(_card_ids([args.repo_id])[0], args.paths)}
+    if command == "refresh-cards":
+        return refresh_cards_atomically(_json_argument(args.data))
     if command == "check-similar":
         return {
             "similar_exists": check_similar_card(args.title, args.keywords)

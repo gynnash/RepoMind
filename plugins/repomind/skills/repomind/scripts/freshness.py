@@ -3,9 +3,62 @@
 
 from datetime import datetime, timezone
 from statistics import median
+from pathlib import PurePosixPath
 
 
 SECONDS_PER_DAY = 24 * 60 * 60
+
+
+def _normalize_path(path):
+    value = str(path).replace("\\", "/").strip()
+    while value.startswith("./"):
+        value = value[2:]
+    return str(PurePosixPath(value)).strip("/") if value else ""
+
+
+def _paths_overlap(left, right):
+    left, right = _normalize_path(left), _normalize_path(right)
+    return bool(left and right) and (
+        left == right or left.startswith(right + "/") or right.startswith(left + "/")
+    )
+
+
+def classify_repository_change(observation):
+    """Classify a repository observation without using commit volume as a signal."""
+    previous = observation.get("previous_head_sha")
+    current = observation.get("head_sha")
+    if previous is not None and current == previous:
+        return {"kind": "unchanged", "affected_paths": [],
+                "reasons": ["head_unchanged"]}
+
+    paths = sorted({_normalize_path(path)
+                    for path in observation.get("changed_paths", []) if _normalize_path(path)})
+    architecture = bool(observation.get("architecture_changed"))
+    structure = bool(observation.get("structure_changed"))
+    key_dirs = [_normalize_path(path) for path in observation.get("key_directories", [])]
+    key_count = sum(any(_paths_overlap(path, directory) for directory in key_dirs)
+                    for path in paths)
+    ratio = key_count / len(paths) if paths else 0.0
+    if architecture and structure:
+        return {"kind": "global", "affected_paths": paths,
+                "reasons": ["architecture_and_structure_changed"]}
+    if ratio >= 0.5 and paths:
+        return {"kind": "global", "affected_paths": paths,
+                "reasons": ["key_directory_ratio_gte_0.5"]}
+
+    relevant = list(observation.get("evidence_paths", [])) + list(
+        observation.get("module_paths", observation.get("related_modules", [])))
+    affected = sorted(path for path in paths
+                      if any(_paths_overlap(path, target) for target in relevant))
+    if affected:
+        reasons = ["relevant_path_changed"]
+        deleted = observation.get("deleted_paths", [])
+        if any(any(_paths_overlap(path, target) for target in relevant)
+               for path in deleted):
+            reasons.insert(0, "evidence_deleted")
+        return {"kind": "localized", "affected_paths": affected, "reasons": reasons}
+    return {"kind": "unrelated", "affected_paths": [],
+            "reasons": ["no_relevant_paths_changed"]}
 
 
 def _parse_utc(timestamp):

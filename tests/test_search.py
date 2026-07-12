@@ -273,6 +273,57 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(card["card_updated_at"], "2026-07-01T00:00:00Z")
         self.assertEqual(result["outcome"], "unchanged")
 
+    def test_affected_cards_match_exact_ancestor_and_descendant_paths(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        first = self.card_data(repo_id)
+        first.update({"evidence_paths": ["src/core/engine.py"],
+                      "related_modules": ["src/api"]})
+        first_id = self.search.insert_card(first)
+        second = self.card_data(repo_id)
+        second.update({"title": "Docs", "evidence_paths": ["docs/guide.md"]})
+        second_id = self.search.insert_card(second)
+        self.assertEqual(
+            self.search.affected_card_ids(repo_id, ["src/core", "src/api/v1.py"]),
+            [first_id],
+        )
+        self.assertNotIn(second_id, self.search.affected_card_ids(repo_id, ["src/core"]))
+
+    def test_refresh_replaces_only_requested_card_and_preserves_identity(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        first_id = self.search.insert_card(self.card_data(repo_id))
+        other = self.card_data(repo_id)
+        other["title"] = "Preserved"
+        other_id = self.search.insert_card(other)
+        with self.search.connect_db() as conn:
+            conn.execute("UPDATE cards SET card_updated_at=? WHERE id=?",
+                         ("2026-07-01T00:00:00Z", other_id))
+        result = self.search.refresh_cards_atomically({
+            "repo_id": repo_id, "head_sha": "newsha",
+            "status": "fresh", "updated_at": "2026-07-12T08:00:00Z",
+            "replacements": [{**self.card_data(repo_id), "id": first_id,
+                              "title": "Refreshed"}],
+        })
+        cards = self.search.get_cards_by_ids([first_id, other_id])
+        self.assertEqual(result["card_ids"], [first_id])
+        self.assertEqual(cards[0]["title"], "Refreshed")
+        self.assertEqual(cards[1]["title"], "Preserved")
+        self.assertEqual(cards[1]["card_updated_at"], "2026-07-01T00:00:00Z")
+        self.assertEqual(cards[0]["last_head_sha"], "newsha")
+
+    def test_invalid_refresh_rolls_back_cards_and_snapshot(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        card_id = self.search.insert_card(self.card_data(repo_id))
+        with self.assertRaisesRegex(ValueError, "Missing card field"):
+            self.search.refresh_cards_atomically({
+                "repo_id": repo_id, "head_sha": "must-not-stick",
+                "status": "fresh", "updated_at": "2026-07-12T08:00:00Z",
+                "replacements": [{"id": card_id, "repo_id": repo_id,
+                                  "dimension": "architecture", "title": "bad"}],
+            })
+        card = self.search.get_cards_by_ids([card_id])[0]
+        self.assertEqual(card["title"], "Airflow DAG Scheduling Architecture")
+        self.assertIsNone(card["last_head_sha"])
+
     def test_empty_query_history_expires(self):
         self.search.record_empty_query("agent scheduler")
         self.assertTrue(self.search.recent_empty_query(" agent   scheduler "))
@@ -472,6 +523,36 @@ class CliTests(unittest.TestCase):
         )
         self.assertEqual(recorded.returncode, 0, recorded.stdout)
         self.assertEqual(json.loads(recorded.stdout)["outcome"], "unchanged")
+
+    def test_targeted_refresh_commands_are_exposed(self):
+        repo = self.run_cli(
+            "insert-repo", "-",
+            stdin=json.dumps({"full_name": "a/b", "url": "https://github.com/a/b"}),
+        )
+        repo_id = json.loads(repo.stdout)["repo_id"]
+        card = self.run_cli(
+            "insert-card", "-",
+            stdin=json.dumps({
+                "repo_id": repo_id, "dimension": "architecture", "title": "Old",
+                "content": "Evidence", "evidence_paths": ["src/core.py"],
+            }),
+        )
+        card_id = json.loads(card.stdout)["card_id"]
+        affected = self.run_cli("affected-cards", str(repo_id), "src")
+        self.assertEqual(json.loads(affected.stdout), {"card_ids": [card_id]})
+        refreshed = self.run_cli(
+            "refresh-cards", "-",
+            stdin=json.dumps({
+                "repo_id": repo_id, "head_sha": "new", "status": "fresh",
+                "updated_at": "2026-07-12T08:00:00Z",
+                "replacements": [{
+                    "id": card_id, "repo_id": repo_id, "dimension": "architecture",
+                    "title": "New", "content": "New evidence",
+                }],
+            }),
+        )
+        self.assertEqual(refreshed.returncode, 0, refreshed.stdout)
+        self.assertEqual(json.loads(refreshed.stdout)["card_ids"], [card_id])
 
     def test_cli_validation_errors_are_json(self):
         cases = [

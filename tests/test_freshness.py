@@ -80,6 +80,49 @@ class FreshnessTests(unittest.TestCase):
             )
         )
 
+    def test_unchanged_head_is_unchanged(self):
+        result = self.freshness.classify_repository_change({
+            "previous_head_sha": "abc", "head_sha": "abc",
+            "changed_paths": ["src/changed.py"],
+        })
+        self.assertEqual(result["kind"], "unchanged")
+        self.assertEqual(result["affected_paths"], [])
+
+    def test_deleted_evidence_is_localized(self):
+        result = self.freshness.classify_repository_change({
+            "previous_head_sha": "abc", "head_sha": "def",
+            "changed_paths": ["src/core/engine.py"],
+            "deleted_paths": ["src/core/engine.py"],
+            "evidence_paths": ["src/core/engine.py"],
+        })
+        self.assertEqual(result["kind"], "localized")
+        self.assertEqual(result["affected_paths"], ["src/core/engine.py"])
+
+    def test_architecture_and_structure_change_is_global(self):
+        result = self.freshness.classify_repository_change({
+            "previous_head_sha": "abc", "head_sha": "def",
+            "changed_paths": ["README.md"],
+            "architecture_changed": True, "structure_changed": True,
+        })
+        self.assertEqual(result["kind"], "global")
+
+    def test_key_directory_ratio_at_half_is_global(self):
+        result = self.freshness.classify_repository_change({
+            "previous_head_sha": "abc", "head_sha": "def",
+            "changed_paths": ["src/a.py", "docs/note.md"],
+            "key_directories": ["src"],
+        })
+        self.assertEqual(result["kind"], "global")
+
+    def test_commit_count_does_not_make_unrelated_change_relevant(self):
+        result = self.freshness.classify_repository_change({
+            "previous_head_sha": "abc", "head_sha": "def",
+            "commit_count": 500, "changed_paths": ["CHANGELOG.md"],
+            "evidence_paths": ["src/engine.py"],
+            "module_paths": ["src"],
+        })
+        self.assertEqual(result["kind"], "unrelated")
+
 
 if __name__ == "__main__":
     unittest.main()
