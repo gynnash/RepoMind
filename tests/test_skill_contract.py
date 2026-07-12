@@ -151,6 +151,17 @@ class SkillContractTests(unittest.TestCase):
         self.assertIn("classic repositories", section)
         self.assertIn("age warning", section)
 
+    def test_cache_workflow_orchestrates_adaptive_validation_commands(self):
+        section = self.text.split("## Cache workflow", 1)[1]
+        commands = ("repos-for-cards", "record-repo-check", "affected-cards", "refresh-cards")
+        for command in commands:
+            self.assertIn(command, section)
+            self.assertIn(command, self.text.split("## Helper interface", 1)[1])
+        self.assertLess(section.index("repos-for-cards"), section.index("Search GitHub conditionally"))
+        for phrase in ("not due", "HEAD", "structural", "localized", "full refresh",
+                       "unverified", "remote validation fails", "legacy"):
+            self.assertIn(phrase, section)
+
     def test_collaboration_has_five_statuses(self):
         for status in ("proposed", "confirmed", "researching", "synthesized", "blocked"):
             self.assertRegex(self.text, rf"(?m)^- `{status}`:")
@@ -254,6 +265,16 @@ class SkillContractTests(unittest.TestCase):
             self.assertIn(field, text)
         self.assertIn("documented rationale", text)
         self.assertIn("inference", text)
+
+    def test_no_mandatory_architecture_dimension_bundle_survives(self):
+        combined = "\n".join(path.read_text(encoding="utf-8") for path in (
+            SKILL_MD, SKILL / "references" / "deep-analysis.md",
+            SKILL / "references" / "output-format.md",
+            SKILL / "references" / "relevance-evaluation.md",
+        )).lower()
+        for phrase in ("mandatory dimensions", "always create `architecture`",
+                       "must create architecture", "architecture, design_patterns, data_flow"):
+            self.assertNotIn(phrase, combined)
 
     def test_result_envelope_and_evidence_provenance(self):
         text = (SKILL / "references" / "output-format.md").read_text(

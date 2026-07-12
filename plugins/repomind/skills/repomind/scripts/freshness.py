@@ -107,7 +107,7 @@ def calculate_check_interval(
     interval = commit_interval_days
     if global_change_detected and relevant_change_detected:
         interval *= change_decay
-    elif not global_change_detected:
+    elif not relevant_change_detected:
         interval *= stability_growth ** stability_runs
     return round(min(max(interval, minimum_days), maximum_days), 3)
 

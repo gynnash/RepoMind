@@ -563,6 +563,27 @@ def affected_card_ids(repo_id, paths):
     return affected
 
 
+def plan_card_refresh(repo_id, paths):
+    """Choose localized refresh only when every cached card has reliable mapping."""
+    with connect_db() as conn:
+        rows = conn.execute(
+            "SELECT id, evidence_paths, related_modules, source_sha FROM cards "
+            "WHERE repo_id=? ORDER BY id", (repo_id,)
+        ).fetchall()
+    if not rows:
+        return {"refresh_scope": "full", "card_ids": [], "reason": "no_cached_cards"}
+    unreliable = []
+    for row in rows:
+        evidence = json.loads(row["evidence_paths"] or "[]")
+        modules = json.loads(row["related_modules"] or "[]")
+        if not row["source_sha"] and not (evidence or modules):
+            unreliable.append(row["id"])
+    if unreliable:
+        return {"refresh_scope": "full", "card_ids": [row["id"] for row in rows],
+                "reason": "unreliable_legacy_mapping"}
+    return {"card_ids": affected_card_ids(repo_id, paths)}
+
+
 def refresh_cards_atomically(data):
     """Replace selected cards and update the repository snapshot in one transaction."""
     if data.get("repo_id") is None:
@@ -578,11 +599,32 @@ def refresh_cards_atomically(data):
             raise ValueError("Replacement card repository does not match refresh repository")
     updated_at = _utc_text(data.get("updated_at"))
     status = data.get("status", "fresh")
+    outcome = data.get("outcome", "localized")
+    if outcome not in {"localized", "global"}:
+        raise ValueError("Refresh outcome must be localized or global")
+    timestamps = data.get("commit_timestamps", [])
+    if not isinstance(timestamps, list):
+        raise ValueError("commit_timestamps must be an array")
+    config = load_config()
     conn = connect_db()
     try:
         conn.execute("BEGIN IMMEDIATE")
-        if conn.execute("SELECT 1 FROM repos WHERE id=?", (data["repo_id"],)).fetchone() is None:
+        repo = conn.execute("SELECT * FROM repos WHERE id=?", (data["repo_id"],)).fetchone()
+        if repo is None:
             raise ValueError(f"Repository not found: {data['repo_id']}")
+        base = median_commit_interval_days(timestamps)
+        if base is None:
+            base = float(config["freshness_default_days"])
+        interval = calculate_check_interval(
+            base, 0, outcome == "global", True,
+            float(config["freshness_min_days"]), float(config["freshness_max_days"]),
+            float(config["freshness_stability_growth"]),
+            float(config["freshness_change_decay"]),
+        )
+        next_check_at = _utc_text(
+            datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+            + timedelta(days=interval)
+        )
         for card in replacements:
             result = conn.execute(
                 """UPDATE cards SET dimension=?, title=?, content=?, keywords=?,
@@ -597,18 +639,22 @@ def refresh_cards_atomically(data):
             if result.rowcount != 1:
                 raise ValueError(f"Card not found in repository: {card['id']}")
         conn.execute(
-            """UPDATE repos SET last_head_sha=?, last_checked_at=?, last_changed_at=?,
+            """UPDATE repos SET last_head_sha=?, default_branch=COALESCE(?, default_branch),
+                   last_checked_at=?, last_changed_at=?, next_check_at=?,
+                   check_interval_days=?, stability_runs=0, commit_intervals=?,
                    readme_digest=COALESCE(?, readme_digest),
                    architecture_digest=COALESCE(?, architecture_digest),
                    structure_digest=COALESCE(?, structure_digest)
                WHERE id=?""",
-            (data.get("head_sha"), updated_at, updated_at, data.get("readme_digest"),
+            (data.get("head_sha"), data.get("default_branch"), updated_at, updated_at,
+             next_check_at, interval, json.dumps(timestamps), data.get("readme_digest"),
              data.get("architecture_digest"), data.get("structure_digest"), data["repo_id"]),
         )
         conn.commit()
         return {"repo_id": data["repo_id"], "card_ids": [c["id"] for c in replacements],
                 "head_sha": data.get("head_sha"), "status": status,
-                "updated_at": updated_at}
+                "updated_at": updated_at, "next_check_at": next_check_at,
+                "check_interval_days": interval, "stability_runs": 0}
     except Exception:
         conn.rollback()
         raise
@@ -899,7 +945,7 @@ def run_command(args):
         else:
             repo_id = _card_ids([args.data])[0]
             paths = args.paths
-        return {"card_ids": affected_card_ids(repo_id, paths)}
+        return plan_card_refresh(repo_id, paths)
     if command == "refresh-cards":
         return refresh_cards_atomically(_json_argument(args.data))
     if command == "check-similar":

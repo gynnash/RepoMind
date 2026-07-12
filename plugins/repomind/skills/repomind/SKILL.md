@@ -72,7 +72,26 @@ Assess cache sufficiency by question coverage, distinct approaches,
 independent repositories, evidence quality, and freshness—not card count. Keep partial
 matches and mark stale evidence.
 
-### 3. Search GitHub conditionally
+### 3. Validate repository freshness
+
+Run `repos-for-cards <ids...>` before any GitHub search. Reuse cards whose
+repository is not due without network access. For each due repository, compare
+the default-branch `HEAD`; if unchanged, persist the new schedule with
+`record-repo-check`. If it changed, gather structural signals and classify the
+change. Record unrelated changes with `record-repo-check`; for a localized
+change run `affected-cards`, regenerate those cards, and commit them with
+`refresh-cards`. A global structural change requires a full refresh.
+
+Treat legacy cards missing source SHA, evidence paths, or related modules as an
+unreliable mapping: on their first due changed-HEAD validation, `affected-cards`
+signals a full refresh and the repository must be fully enriched. Never treat an
+empty mapping as a localized no-op. `refresh-cards` receives the refreshed
+snapshot and commit timestamps and atomically advances `next_check_at`.
+
+If remote validation fails, retain the cached cards, label them unverified for
+this run, and do not count them as verified evidence or force a rebuild.
+
+### 4. Search GitHub conditionally
 
 Only when the cache is insufficient, check `recent-empty-query`, then search
 likely repositories and the domain query with `gh`. Merge candidates, respect
@@ -82,14 +101,14 @@ Prefer maintained evidence, but permit classic repositories when their design
 remains instructive; attach an explicit age warning instead of excluding them
 solely for age. Record an empty query when applicable.
 
-### 4. Analyze and store
+### 5. Analyze and store
 
 Analyze qualifying repositories independently, in parallel when supported,
 following [references/deep-analysis.md](references/deep-analysis.md). One
 failure must not stop other analyses. Insert repositories and deduplicated cards
 with serializer-generated JSON.
 
-### 5. Synthesize
+### 6. Synthesize
 
 Fetch complete cards with `get-cards <ids...>` and follow
 [references/output-format.md](references/output-format.md). Compare approaches,
@@ -115,4 +134,5 @@ printf '%s' "$CARD_JSON" | python3 "$SEARCH_SCRIPT" insert-card-if-new -
 
 Always use a JSON serializer. Relevant commands: `init`, `config`, `count`,
 `search`, `all-cards`, `get-cards`, `insert-repo`, `insert-card-if-new`,
+`repos-for-cards`, `record-repo-check`, `affected-cards`, `refresh-cards`,
 `recent-empty-query`, and `record-empty-query`.

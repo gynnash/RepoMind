@@ -62,6 +62,59 @@ class SearchTests(unittest.TestCase):
             "keywords": "scheduling,DAG,workflow,airflow,executor,orchestration",
         }
 
+    def test_legacy_card_without_mapping_requires_full_refresh(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        card_id = self.search.insert_card(self.card_data(repo_id))
+        result = self.search.plan_card_refresh(repo_id, ["src/changed.py"])
+        self.assertEqual(result["refresh_scope"], "full")
+        self.assertEqual(result["card_ids"], [card_id])
+        self.assertEqual(result["reason"], "unreliable_legacy_mapping")
+
+    def test_refresh_advances_complete_adaptive_snapshot(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        card = self.card_data(repo_id)
+        card.update({"evidence_paths": ["src/core.py"], "related_modules": ["src"]})
+        card_id = self.search.insert_card(card)
+        result = self.search.refresh_cards_atomically({
+            "repo_id": repo_id, "head_sha": "new", "default_branch": "main",
+            "updated_at": "2026-07-12T00:00:00Z", "outcome": "localized",
+            "commit_timestamps": ["2026-07-10T00:00:00Z", "2026-07-12T00:00:00Z"],
+            "replacements": [{**card, "id": card_id, "content": "enriched"}],
+        })
+        self.assertGreater(result["next_check_at"], "2026-07-12T00:00:00Z")
+        with self.search.connect_db() as conn:
+            repo = dict(conn.execute("SELECT * FROM repos WHERE id=?", (repo_id,)).fetchone())
+        self.assertEqual(repo["default_branch"], "main")
+        self.assertEqual(repo["stability_runs"], 0)
+        self.assertEqual(repo["check_interval_days"], 2.0)
+        self.assertEqual(json.loads(repo["commit_intervals"]), [
+            "2026-07-10T00:00:00Z", "2026-07-12T00:00:00Z"
+        ])
+        self.assertFalse(self.search.get_repositories_for_cards(
+            [card_id], now="2026-07-12T00:00:01Z")[0]["check_due"])
+
+    def test_due_changed_legacy_card_gets_full_enrichment_and_future_schedule(self):
+        repo_id = self.search.insert_repo(self.repo_data())
+        card_id = self.search.insert_card(self.card_data(repo_id))
+        retrieved = self.search.get_repositories_for_cards(
+            [card_id], now="2026-07-12T00:00:00Z")
+        self.assertTrue(retrieved[0]["check_due"])
+        decision = self.search.plan_card_refresh(repo_id, ["src/new_engine.py"])
+        self.assertEqual(decision["refresh_scope"], "full")
+        enriched = {**self.card_data(repo_id), "id": card_id,
+                    "evidence_paths": ["src/new_engine.py"],
+                    "related_modules": ["src"], "source_sha": "new"}
+        self.search.refresh_cards_atomically({
+            "repo_id": repo_id, "head_sha": "new", "default_branch": "main",
+            "updated_at": "2026-07-12T00:00:00Z", "outcome": "global",
+            "commit_timestamps": [], "replacements": [enriched],
+        })
+        cards = self.search.get_cards_by_ids([card_id])
+        self.assertEqual(json.loads(cards[0]["evidence_paths"]), ["src/new_engine.py"])
+        self.assertEqual(cards[0]["source_sha"], "new")
+        self.assertFalse(self.search.get_repositories_for_cards(
+            [card_id], now="2026-07-12T00:00:01Z")[0]["check_due"])
+
     def test_public_reads_auto_initialize_database(self):
         self.assertEqual(self.search.get_card_count(), 0)
         self.assertEqual(self.search.search_cards_v1(["scheduler"]), [])

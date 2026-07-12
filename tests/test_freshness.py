@@ -60,6 +60,21 @@ class FreshnessTests(unittest.TestCase):
             3.667,
         )
 
+    def test_interval_truth_table_and_upper_clamp(self):
+        cases = (
+            (10, 0, False, False, 10.0),
+            (10, 1, False, False, 15.0),
+            (10, 3, False, False, 30.0),
+            (10, 9, True, True, 5.0),
+            (10, 9, False, True, 10.0),
+        )
+        for base, runs, global_change, relevant_change, expected in cases:
+            with self.subTest(runs=runs, global_change=global_change,
+                              relevant_change=relevant_change):
+                self.assertEqual(self.freshness.calculate_check_interval(
+                    base, runs, global_change, relevant_change, 1, 30, 1.5, 0.5
+                ), expected)
+
     def test_missing_or_equal_next_check_is_due(self):
         now = datetime.now(timezone.utc)
         self.assertTrue(self.freshness.is_check_due(None, now))
