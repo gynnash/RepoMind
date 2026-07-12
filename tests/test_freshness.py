@@ -66,6 +66,20 @@ class FreshnessTests(unittest.TestCase):
         self.assertTrue(self.freshness.is_check_due(now, now))
         self.assertFalse(self.freshness.is_check_due(now + timedelta(seconds=1), now))
 
+    def test_check_due_compares_offset_timestamps_as_instants(self):
+        self.assertTrue(
+            self.freshness.is_check_due(
+                "2026-07-12T09:00:00+08:00", "2026-07-12T08:00:00Z"
+            )
+        )
+
+    def test_check_due_treats_naive_timestamps_as_utc(self):
+        self.assertTrue(
+            self.freshness.is_check_due(
+                "2026-07-12T08:00:00", "2026-07-12T08:00:00Z"
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

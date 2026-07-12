@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Deterministic scheduling helpers for adaptive repository freshness checks."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from statistics import median
 
 
@@ -10,10 +10,15 @@ SECONDS_PER_DAY = 24 * 60 * 60
 
 def _parse_utc(timestamp):
     if isinstance(timestamp, datetime):
-        return timestamp
-    if timestamp.endswith("Z"):
-        timestamp = f"{timestamp[:-1]}+00:00"
-    return datetime.fromisoformat(timestamp)
+        parsed = timestamp
+    else:
+        if timestamp.endswith("Z"):
+            timestamp = f"{timestamp[:-1]}+00:00"
+        parsed = datetime.fromisoformat(timestamp)
+    # Database timestamps without an explicit offset are stored as UTC.
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def median_commit_interval_days(timestamps):
@@ -49,4 +54,4 @@ def calculate_check_interval(
 
 def is_check_due(next_check_at, now):
     """Return whether a repository's scheduled check time has arrived."""
-    return next_check_at is None or next_check_at <= now
+    return next_check_at is None or _parse_utc(next_check_at) <= _parse_utc(now)
