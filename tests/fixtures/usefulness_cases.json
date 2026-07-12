@@ -10,18 +10,18 @@
       "anti_hallucination"
     ],
     "dimension_descriptions": {
-      "relevance": "Derived from how many prompt-specific architecture terms appear in the answer.",
-      "specificity": "Derived from concrete GitHub repository URLs and source-file references.",
+      "relevance": "Derived from how many prompt-specific research terms appear in the answer.",
+      "specificity": "Derived from distinct GitHub repository URLs and source-file evidence.",
       "implementation_guidance": "Derived from explicit implementation-planning language such as modeling, persistence, boundaries, retries, or idempotency.",
       "applicability_explanation": "Derived from explicit 'why useful' explanations and transferability language.",
-      "anti_hallucination": "Derived from cited repositories/files and reduced when the answer is uncited generic advice."
+      "anti_hallucination": "Derived from cited repositories/files, the result envelope, and explicit evidence freshness."
     }
   },
   "cases": [
     {
       "id": "workflow-scheduler-dag-retries",
       "prompt": "Find architecture examples for a workflow scheduler with DAG execution and retry semantics.",
-      "architecture_terms": [
+      "research_terms": [
         "workflow",
         "scheduler",
         "dag",
@@ -35,13 +35,13 @@
       "repomind": {
         "mode": "with_repomind",
         "provenance": "deterministic RepoMind fixture assembled from recorded local code-card fields: repository URL, source paths, architecture summary, and transfer notes",
-        "output": "RepoMind result: https://github.com/apache/airflow shows a mature workflow DAG scheduler. Code locations: airflow/models/dag.py, airflow/jobs/scheduler_job_runner.py, airflow/models/taskinstance.py. Why useful: it separates DAG definition, scheduling decisions, and task instance state, which directly maps to retry semantics and executor handoff. Implementation guidance: model the DAG as immutable workflow metadata, persist each task attempt separately, and keep scheduler decisions idempotent so crashed scheduler loops can resume safely."
+        "output": "<repomind-result status=\"complete\"> RepoMind result: https://github.com/apache/airflow shows a workflow DAG scheduler in airflow/models/dag.py and airflow/jobs/scheduler_job_runner.py; https://github.com/temporalio/temporal separates durable workflow history and retry execution in service/history/workflow/mutable_state_impl.go. Trade-off: Airflow exposes scheduler state while Temporal adds durable-event complexity. Freshness: validated_cache. Why useful: both directly map to scheduler retry boundaries. Applicability: persist attempts separately and keep scheduler decisions idempotent. Implementation guidance: model immutable DAG metadata and version retry policy. </repomind-result>"
       }
     },
     {
       "id": "developer-tool-plugin-boundaries",
       "prompt": "Find real repositories showing plugin/module boundary design for extensible developer tools.",
-      "architecture_terms": [
+      "research_terms": [
         "plugin",
         "module",
         "boundary",
@@ -55,13 +55,13 @@
       "repomind": {
         "mode": "with_repomind",
         "provenance": "deterministic RepoMind fixture assembled from recorded local code-card fields: repository URL, source paths, architecture summary, and transfer notes",
-        "output": "RepoMind result: https://github.com/prettier/prettier demonstrates an extensible formatter plugin boundary. Code locations: src/main/core.js, src/main/parser-and-printer.js, docs/plugins.md. Why useful: the core separates orchestration from plugin-provided parser/printer modules while preserving centralized option handling. Implementation guidance: keep the host responsible for orchestration and errors, make each module boundary explicit, and version the boundary so third-party plugins can survive internal refactors."
+        "output": "<repomind-result status=\"complete\"> RepoMind result: https://github.com/prettier/prettier demonstrates an extensible plugin module boundary in src/main/core.js and docs/plugins.md; https://github.com/eslint/eslint isolates rule plugins behind contracts in lib/linter/linter.js. Trade-off: Prettier centralizes orchestration while ESLint offers finer extension points with more compatibility burden. Freshness: new. Why useful: these boundaries directly demonstrate host-owned lifecycle and errors. Applicability: version the plugin API and isolate modules. Implementation guidance: keep configuration and loading in the host. </repomind-result>"
       }
     },
     {
       "id": "data-ingestion-queue-batching-recovery",
       "prompt": "Find data ingestion pipeline architecture examples with queueing, batching, and failure recovery.",
-      "architecture_terms": [
+      "research_terms": [
         "ingestion",
         "queue",
         "batch",
@@ -75,7 +75,37 @@
       "repomind": {
         "mode": "with_repomind",
         "provenance": "deterministic RepoMind fixture assembled from recorded local code-card fields: repository URL, source paths, architecture summary, and transfer notes",
-        "output": "RepoMind result: https://github.com/apache/beam shows a portable data ingestion pipeline model for batching, queue-like bundle execution, and recovery. Code locations: sdks/python/apache_beam/transforms/core.py, sdks/python/apache_beam/runners/worker/bundle_processor.py, sdks/python/apache_beam/io/iobase.py. Why useful: Beam separates source reading, transforms, bundle execution, and runner-specific recovery semantics. Implementation guidance: represent ingestion as bounded bundles, commit progress at bundle boundaries, and make retry behavior part of runner execution instead of source adapters."
+        "output": "<repomind-result status=\"complete\"> RepoMind result: https://github.com/apache/beam models ingestion batches in sdks/python/apache_beam/runners/worker/bundle_processor.py; https://github.com/apache/kafka separates queue recovery and committed offsets in clients/src/main/java/org/apache/kafka/clients/consumer/KafkaConsumer.java. Trade-off: Beam provides portable batch execution while Kafka exposes lower-level recovery control. Freshness: validated_cache. Why useful: both directly show commit boundaries. Applicability: persist checkpoints and separate ingestion adapters. Implementation guidance: make batch commits idempotent and retry poison messages. </repomind-result>"
+      }
+    },
+    {
+      "id": "agent-skill-workflow",
+      "prompt": "Research reusable Agent Skill workflow designs with staged instructions and supporting references.",
+      "research_terms": ["agent", "skill", "workflow", "references"],
+      "baseline": {
+        "mode": "without_repomind",
+        "provenance": "deterministic generic baseline without repository evidence",
+        "output": "Consider writing agent instructions with a workflow and references. Consider keeping the skill concise and documenting the steps."
+      },
+      "repomind": {
+        "mode": "with_repomind",
+        "provenance": "deterministic comparative fixture with repository and file evidence",
+        "output": "<repomind-result status=\"complete\"> RepoMind result: https://github.com/anthropics/skills uses staged Agent Skill workflow guidance in skills/pdf/SKILL.md; https://github.com/openai/skills separates concise skill routing from references in skills/docs/SKILL.md. Trade-off: embedded instructions are easier to discover while reference files keep context smaller. Freshness: new. Why useful: the designs directly demonstrate progressive workflow loading. Applicability: keep routing in SKILL.md and move detailed references out. Implementation guidance: version the workflow and validate referenced files. </repomind-result>"
+      }
+    },
+    {
+      "id": "plugin-lifecycle-isolation",
+      "prompt": "Compare plugin lifecycle and isolation patterns for a developer platform.",
+      "research_terms": ["plugin", "lifecycle", "isolation", "platform"],
+      "baseline": {
+        "mode": "without_repomind",
+        "provenance": "deterministic generic baseline without repository evidence",
+        "output": "Consider lifecycle hooks and process isolation for each plugin. Consider defining a stable platform API and cleanup behavior."
+      },
+      "repomind": {
+        "mode": "with_repomind",
+        "provenance": "deterministic comparative fixture with repository and file evidence",
+        "output": "<repomind-result status=\"complete\"> RepoMind result: https://github.com/hashicorp/go-plugin isolates plugin lifecycle over RPC in client.go; https://github.com/eclipse-theia/theia manages platform extensions in packages/plugin-ext/src/hosted/node/hosted-plugin-process.ts. Trade-off: subprocess RPC gives stronger isolation but higher latency; an extension host enables richer integration with a larger blast radius. Freshness: validated_cache. Why useful: both directly expose startup, shutdown, and failure boundaries. Applicability: isolate untrusted plugins and keep lifecycle ownership in the host. Implementation guidance: version RPC, enforce timeouts, and make cleanup idempotent. </repomind-result>"
       }
     }
   ]

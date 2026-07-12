@@ -28,7 +28,7 @@ class UsefulnessEvaluationTests(unittest.TestCase):
         github_refs = re.findall(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", output)
         prompt_terms = {
             term.lower()
-            for term in case["architecture_terms"]
+            for term in case["research_terms"]
         }
         matched_terms = {term for term in prompt_terms if term in lower}
 
@@ -71,8 +71,8 @@ class UsefulnessEvaluationTests(unittest.TestCase):
             5,
             len(set(github_refs))
             + min(2, len(set(file_refs)))
-            + (1 if "repoMind result".lower() in lower else 0)
-            + (1 if "consider" not in lower else 0),
+            + (1 if '<repomind-result status="complete">' in lower else 0)
+            + (1 if "freshness:" in lower else 0),
         )
 
         return {
@@ -83,12 +83,12 @@ class UsefulnessEvaluationTests(unittest.TestCase):
             "anti_hallucination": anti_hallucination,
         }
 
-    def test_fixture_defines_written_rubric_and_three_cases(self):
+    def test_fixture_defines_written_rubric_and_five_cases(self):
         rubric = self.fixture["rubric"]
         self.assertEqual(tuple(rubric["dimensions"]), RUBRIC_DIMENSIONS)
         self.assertEqual(rubric["scale"], "0-5")
         self.assertEqual(rubric["minimum_total_improvement_percent"], 30)
-        self.assertEqual(len(self.fixture["cases"]), 3)
+        self.assertEqual(len(self.fixture["cases"]), 5)
 
     def test_each_case_compares_baseline_to_repomind_assisted_output(self):
         for case in self.fixture["cases"]:
@@ -98,7 +98,8 @@ class UsefulnessEvaluationTests(unittest.TestCase):
                 self.assertEqual(case["repomind"]["mode"], "with_repomind")
                 self.assertIn("output", case["baseline"])
                 self.assertIn("output", case["repomind"])
-                self.assertIn("architecture_terms", case)
+                self.assertIn("research_terms", case)
+                self.assertNotIn("architecture_terms", case)
 
     def test_repomind_output_scores_at_least_30_percent_higher(self):
         for case in self.fixture["cases"]:
@@ -143,6 +144,23 @@ class UsefulnessEvaluationTests(unittest.TestCase):
                 self.assertRegex(output, r"[A-Za-z0-9_./-]+\.(py|ts|tsx|go|rs|java|md)")
                 self.assertIn("why useful", output.lower())
                 self.assertIn("implementation", output.lower())
+
+    def test_repomind_outputs_are_comparative_result_envelopes(self):
+        for case in self.fixture["cases"]:
+            with self.subTest(case=case["id"]):
+                output = case["repomind"]["output"]
+                repositories = set(
+                    re.findall(
+                        r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",
+                        output,
+                    )
+                )
+                self.assertGreaterEqual(len(repositories), 2)
+                self.assertRegex(output, r"[A-Za-z0-9_./-]+\.(py|ts|tsx|go|rs|java|md)")
+                self.assertIn("<repomind-result status=\"complete\">", output)
+                self.assertIn("trade-off", output.lower())
+                self.assertIn("freshness:", output.lower())
+                self.assertIn("applicability:", output.lower())
 
     def test_baseline_outputs_are_intentionally_generic(self):
         for case in self.fixture["cases"]:

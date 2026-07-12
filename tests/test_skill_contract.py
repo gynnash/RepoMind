@@ -73,6 +73,45 @@ class SkillContractTests(unittest.TestCase):
         ):
             self.assertIn(phrase, self.text)
 
+    def test_trigger_contract_accepts_research_and_rejects_narrow_help(self):
+        description = self.text.split("---", 2)[1].lower()
+        state_one = self.text.split("## State 1: Before research confirmation", 1)[1].split(
+            "## State 2: After research confirmation", 1
+        )[0].lower()
+
+        valid_research_requests = (
+            "Research plugin lifecycle and isolation designs in public codebases",
+            "Compare scheduler retry patterns across repositories",
+            "Find reusable Agent Skill workflow designs and rationale",
+        )
+        invalid_narrow_requests = (
+            "How do I implement React useState?",
+            "What arguments does this API accept?",
+            "Debug this failing unit test",
+        )
+
+        def should_trigger(request):
+            lower = request.lower()
+            rejected = any(term in lower for term in ("usestate", "api", "debug"))
+            research = any(
+                term in lower
+                for term in ("research", "compare", "reusable", "design", "pattern", "rationale")
+            )
+            return research and not rejected
+
+        self.assertIn("feature design", description)
+        self.assertIn("engineering patterns", description)
+        self.assertIn("design rationale", description)
+        self.assertIn("syntax question", state_one)
+        self.assertIn("single api question", state_one)
+        self.assertIn("routine debugging", state_one)
+        for request in valid_research_requests:
+            with self.subTest(request=request):
+                self.assertTrue(should_trigger(request))
+        for request in invalid_narrow_requests:
+            with self.subTest(request=request):
+                self.assertFalse(should_trigger(request))
+
     def test_no_query_conversation_and_query_direct_research(self):
         for phrase in (
             "conversation context",
