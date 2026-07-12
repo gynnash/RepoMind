@@ -8,6 +8,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -275,6 +276,63 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(
             conn.execute(
                 "SELECT COUNT(*) FROM sqlite_master WHERE name = 'cards_legacy'"
+            ).fetchone()[0],
+            0,
+        )
+        conn.close()
+
+    def test_migration_failure_rolls_back_all_schema_and_data_changes(self):
+        database = self.home / "repomind.db"
+        conn = sqlite3.connect(database)
+        conn.executescript(
+            """
+            CREATE TABLE repos (
+                id INTEGER PRIMARY KEY,
+                full_name TEXT UNIQUE NOT NULL,
+                url TEXT NOT NULL
+            );
+            CREATE TABLE cards (
+                id INTEGER PRIMARY KEY,
+                repo_id INTEGER REFERENCES repos(id),
+                dimension TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                keywords TEXT,
+                embedding BLOB,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            INSERT INTO repos (id, full_name, url)
+            VALUES (4, 'legacy/repo', 'url');
+            INSERT INTO cards (id, repo_id, dimension, title, content)
+            VALUES (8, 4, 'architecture', 'legacy card', 'preserve me');
+            PRAGMA user_version = 1;
+            """
+        )
+        conn.close()
+
+        with mock.patch.object(
+            self.search, "_migrate_schema_v2", side_effect=RuntimeError("later failure")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "later failure"):
+                self.search.connect_db()
+
+        conn = sqlite3.connect(database)
+        self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 1)
+        repo_id_column = next(
+            row for row in conn.execute("PRAGMA table_info(cards)") if row[1] == "repo_id"
+        )
+        self.assertEqual(
+            repo_id_column[3],
+            0,
+        )
+        self.assertEqual(
+            conn.execute("SELECT content FROM cards WHERE id = 8").fetchone()[0],
+            "preserve me",
+        )
+        self.assertEqual(
+            conn.execute(
+                "SELECT COUNT(*) FROM sqlite_master "
+                "WHERE type = 'table' AND name = 'search_history'"
             ).fetchone()[0],
             0,
         )

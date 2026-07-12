@@ -144,7 +144,7 @@ def _validate_config(config, source):
 
 
 def _create_schema(conn):
-    conn.executescript(
+    conn.execute(
         """
         CREATE TABLE IF NOT EXISTS repos (
             id          INTEGER PRIMARY KEY,
@@ -166,8 +166,11 @@ def _create_schema(conn):
             check_interval_days REAL NOT NULL DEFAULT 7.0,
             stability_runs INTEGER NOT NULL DEFAULT 0,
             commit_intervals TEXT NOT NULL DEFAULT '[]'
-        );
-
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS cards (
             id          INTEGER PRIMARY KEY,
             repo_id     INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
@@ -183,12 +186,15 @@ def _create_schema(conn):
             source_sha TEXT,
             freshness_status TEXT NOT NULL DEFAULT 'unknown',
             card_updated_at TEXT
-        );
-
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS search_history (
             query         TEXT PRIMARY KEY,
             last_empty_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
+        )
         """
     )
 
@@ -203,6 +209,8 @@ def _add_missing_columns(conn, table, definitions):
 
 
 def _migrate_schema_v2(conn):
+    if conn.execute("PRAGMA user_version").fetchone()[0] >= SCHEMA_VERSION:
+        return
     _add_missing_columns(conn, "repos", (
         ("language", "TEXT"), ("topics", "TEXT"), ("stars", "INTEGER"),
         ("description", "TEXT"), ("fetched_at", "TEXT"),
@@ -244,9 +252,9 @@ def _migrate_nullable_repo_id(conn):
             f"Cannot migrate: {orphan_count} legacy cards reference missing "
             "repositories; repair or remove them before retrying"
         )
-    conn.executescript(
+    conn.execute("ALTER TABLE cards RENAME TO cards_legacy")
+    conn.execute(
         """
-        ALTER TABLE cards RENAME TO cards_legacy;
         CREATE TABLE cards (
             id          INTEGER PRIMARY KEY,
             repo_id     INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
@@ -256,16 +264,20 @@ def _migrate_nullable_repo_id(conn):
             keywords    TEXT,
             embedding   BLOB,
             created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-        );
+        )
+        """
+    )
+    conn.execute(
+        """
         INSERT INTO cards
             (id, repo_id, dimension, title, content, keywords, embedding, created_at)
         SELECT c.id, c.repo_id, c.dimension, c.title, c.content, c.keywords,
                c.embedding, c.created_at
         FROM cards_legacy c
-        JOIN repos r ON r.id = c.repo_id;
-        DROP TABLE cards_legacy;
+        JOIN repos r ON r.id = c.repo_id
         """
     )
+    conn.execute("DROP TABLE cards_legacy")
 
 
 def connect_db():
@@ -280,6 +292,7 @@ def connect_db():
         conn.execute("PRAGMA busy_timeout=10000")
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("BEGIN")
         _create_schema(conn)
         _migrate_nullable_repo_id(conn)
         _migrate_schema_v2(conn)
