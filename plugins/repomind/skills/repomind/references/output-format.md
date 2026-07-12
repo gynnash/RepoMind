@@ -1,32 +1,36 @@
 # Output Format and Failures
 
-Return cards in this form:
+Return exactly one result envelope:
 
 ```markdown
-## RepoMind Code Cards
-
-> **Search intent:** {query}
-> **Matched repos:** {repo_count} | **Cards:** {card_count}
-
-<repo-card id="{id}" repo="{owner/repo}" dimension="{dimension}"
-  relevance="{score}" stars="{stars}" stale="{true_or_false}">
-{card content}
-</repo-card>
+<repomind-result status="complete|partial|needs_clarification|out_of_scope|unavailable">
+## Research conclusion
+## Approaches and trade-offs
+## Public implementation evidence
+## Implications for the current project
+## Evidence freshness
+## Follow-up directions
+</repomind-result>
 ```
 
-Sort by relevance descending, then stars descending. After the cards, report:
+Use `complete` when the confirmed question is answered with sufficient public
+evidence. Use `partial` when useful evidence exists but coverage is incomplete.
+Use `needs_clarification` when the research object cannot be determined,
+`out_of_scope` when the request is not public implementation research, and
+`unavailable` when authentication, rate limits, or tooling prevent research.
+Every non-success state must explain the next action.
 
-- repositories analyzed
-- new cards created
-- duplicates reused
-- stale cards returned
-- repositories that failed, with concise reasons
+Under **Public implementation evidence**, every evidence item includes its URL,
+exact SHA, files or modules, card ID, and freshness value: `new`,
+`validated_cache`, or `unverified_cache`. Do not silently upgrade unverified
+cached evidence. Distinguish documented rationale from inference in the item.
 
-## Failure behavior
+Keep conclusions comparative and question-centered. Explain meaningful
+approaches and trade-offs, then connect only supported implications to the
+current project. In **Evidence freshness**, disclose cache validation, stale or
+unreachable sources, and repository failures.
 
-- Rate limited: report reset time and return local results.
-- `gh` unauthenticated: ask the user to run `gh auth login`; do not claim an
-  unauthenticated fallback succeeded.
-- Deleted/private repository: skip and continue.
-- Agent failure: retain successful cards from other repositories.
-- SQLite corruption: recommend backing up the database before `reset-db`.
+For rate limits, return available validated evidence and the reset time. For
+missing GitHub authentication, request `gh auth login`. Skip deleted or private
+repositories, retain successful evidence when one analysis fails, and recommend
+a database backup before corruption recovery.

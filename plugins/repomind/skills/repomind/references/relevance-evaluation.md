@@ -1,50 +1,23 @@
 # Relevance Evaluation
 
-Use this rubric for semantic local-card selection and GitHub fine filtering.
-
-## Local cards
-
-Score each card from 0–5 against the original request:
-
-- 5: directly addresses the same architectural concern
-- 4: same domain and highly transferable pattern
-- 3: adjacent domain with a useful transferable pattern
-- 2: tangential insight
-- 0–1: not relevant
-
-Return at most ten cards scoring 3+, ordered by score.
-
-## Repository fine filter
-
-Evaluate the README and project context on four 0–5 dimensions:
+Evaluate each repository or cached card against the confirmed research object,
+not a fixed architecture taxonomy. Score every dimension from 0–5:
 
 | Dimension | Weight | Meaning |
 |---|---:|---|
-| `domain_match` | 0.4 | Same or adjacent problem domain |
-| `arch_pattern` | 0.2 | Architectural pattern clarity and transferability |
-| `tech_overlap` | 0.2 | Language, framework, and dependency overlap |
-| `depth_quality` | 0.2 | Architecture docs, ADRs, diagrams, or module detail |
+| `question_match` | 0.30 | Directly answers the research question |
+| `transferability` | 0.25 | Mechanism can be adapted to the current project |
+| `constraint_fit` | 0.20 | Fits stated technical and operational constraints |
+| `evidence_depth` | 0.15 | Claims trace to implementation or documentation |
+| `independence` | 0.10 | Adds evidence distinct from already selected sources |
 
-Scores of 3+ must cite a specific README passage. Calculate:
+`overall = question_match*.30 + transferability*.25 + constraint_fit*.20 + evidence_depth*.15 + independence*.10`
 
-`overall = domain_match*0.4 + arch_pattern*0.2 + tech_overlap*0.2 + depth_quality*0.2`
+Keep candidates scoring at least the configured threshold. A high score must
+name the evidence supporting it. Stars break ties only; popularity never
+overrides question fit or evidence quality. Prefer a smaller set of independent
+implementations over several forks or near-duplicates.
 
-Return valid JSON:
-
-```json
-{
-  "repo": "owner/repo",
-  "scores": {
-    "domain_match": 0,
-    "arch_pattern": 0,
-    "tech_overlap": 0,
-    "depth_quality": 0
-  },
-  "overall": 0,
-  "evidence": ["README passage or section"],
-  "key_insight": "Most transferable architectural idea",
-  "verdict": "deep_analyze"
-}
-```
-
-Use `skip` when overall is below configured `min_relevance_score`.
+Return the repository, research object, per-dimension scores, overall score,
+evidence paths or README sections, transferable insight, and `deep_analyze` or
+`skip` verdict.

@@ -170,6 +170,63 @@ class SkillContractTests(unittest.TestCase):
     def test_skill_contains_no_unbalanced_four_backtick_fence(self):
         self.assertEqual(self.text.count("````") % 2, 0)
 
+    def test_relevance_scoring_is_question_centered(self):
+        text = (SKILL / "references" / "relevance-evaluation.md").read_text(
+            encoding="utf-8"
+        )
+        for dimension in (
+            "question_match",
+            "transferability",
+            "constraint_fit",
+            "evidence_depth",
+            "independence",
+        ):
+            self.assertIn(dimension, text)
+        self.assertIn("research object", text)
+        self.assertIn("Stars break ties only", text)
+
+    def test_analysis_cards_are_dynamic_and_evidence_backed(self):
+        text = (SKILL / "references" / "deep-analysis.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("Always create `architecture`", text)
+        self.assertIn("question-relevant dimensions", text)
+        for field in (
+            "research_object",
+            "mechanism",
+            "limitations",
+            "transferability",
+            "sha",
+            "evidence_paths",
+            "keywords",
+        ):
+            self.assertIn(field, text)
+        self.assertIn("documented rationale", text)
+        self.assertIn("inference", text)
+
+    def test_result_envelope_and_evidence_provenance(self):
+        text = (SKILL / "references" / "output-format.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            '<repomind-result status="complete|partial|needs_clarification|out_of_scope|unavailable">',
+            text,
+        )
+        for heading in (
+            "## Research conclusion",
+            "## Approaches and trade-offs",
+            "## Public implementation evidence",
+            "## Implications for the current project",
+            "## Evidence freshness",
+            "## Follow-up directions",
+        ):
+            self.assertIn(heading, text)
+        for field in ("URL", "SHA", "files", "card ID"):
+            self.assertIn(field, text)
+        for freshness in ("new", "validated_cache", "unverified_cache"):
+            self.assertIn(freshness, text)
+        self.assertIn("next action", text)
+
 
 if __name__ == "__main__":
     unittest.main()
