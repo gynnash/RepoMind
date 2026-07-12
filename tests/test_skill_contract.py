@@ -41,12 +41,16 @@ class SkillContractTests(unittest.TestCase):
         self.assertLess(gate, preconditions)
         gate_text = self.text[gate:preconditions]
         for prohibition in (
-            "Do not run any tool",
+            "Do not run the RepoMind helper",
             "Do not initialize the database",
-            "Do not read references",
             "Do not search GitHub",
+            "Do not generate cards",
         ):
             self.assertIn(prohibition, gate_text)
+        self.assertNotIn("Do not run any tool", gate_text)
+        self.assertIn("bounded read-only local inspection", gate_text)
+        self.assertIn("README", gate_text)
+        self.assertIn("task code", gate_text)
         self.assertIn("edit the candidates", gate_text)
         self.assertIn("provide free-form input", gate_text)
         self.assertIn("request another set", gate_text)

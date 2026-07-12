@@ -19,7 +19,7 @@ and stores runtime state in that project's `.repomind/` directory.
 
 ## State 1: Before research confirmation
 
-Route the request before reading references or running commands.
+Route the request before beginning RepoMind research.
 
 | Scenario | Action |
 | --- | --- |
@@ -28,8 +28,11 @@ Route the request before reading references or running commands.
 | A syntax question or single API question | Reject RepoMind and answer with documentation or ordinary coding help. |
 | Routine debugging or narrow implementation | Reject RepoMind and use normal debugging or implementation assistance. |
 
-Before confirmation: Do not run any tool. Do not initialize the database.
-Do not read references. Do not search GitHub. If no credible design question can
+Before confirmation: Do not run the RepoMind helper. Do not initialize the database
+or search cards. Do not search GitHub. Do not generate cards.
+Permission: bounded read-only local inspection of candidate inputs is permitted; inspect only relevant README
+sections, task code, or similarly lightweight repository context needed to propose questions.
+Do not read RepoMind research references yet. If no credible design question can
 be formed, ask for one rather than matching keywords.
 
 ## State 2: After research confirmation
