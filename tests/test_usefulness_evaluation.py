@@ -16,6 +16,29 @@ RUBRIC_DIMENSIONS = (
     "anti_hallucination",
 )
 
+REPOSITORY_URL = re.compile(
+    r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+)
+FILE_REFERENCE = re.compile(
+    r"[A-Za-z0-9_./-]+\.(?:py|js|ts|tsx|go|rs|java|md)"
+)
+
+
+def each_repository_has_file_evidence(output):
+    """Associate evidence with the repository whose URL begins each segment."""
+    repositories = list(REPOSITORY_URL.finditer(output))
+    if not repositories:
+        return False
+    return all(
+        FILE_REFERENCE.search(
+            output[repository.end():next_start]
+        )
+        for repository, next_start in zip(
+            repositories,
+            [match.start() for match in repositories[1:]] + [len(output)],
+        )
+    )
+
 
 class UsefulnessEvaluationTests(unittest.TestCase):
     @classmethod
@@ -24,7 +47,7 @@ class UsefulnessEvaluationTests(unittest.TestCase):
 
     def score_output(self, case, output):
         lower = output.lower()
-        file_refs = re.findall(r"[A-Za-z0-9_./-]+\.(?:py|ts|tsx|go|rs|java|md)", output)
+        file_refs = FILE_REFERENCE.findall(output)
         github_refs = re.findall(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", output)
         prompt_terms = {
             term.lower()
@@ -141,7 +164,7 @@ class UsefulnessEvaluationTests(unittest.TestCase):
             with self.subTest(case=case["id"]):
                 output = case["repomind"]["output"]
                 self.assertIn("https://github.com/", output)
-                self.assertRegex(output, r"[A-Za-z0-9_./-]+\.(py|ts|tsx|go|rs|java|md)")
+                self.assertRegex(output, FILE_REFERENCE)
                 self.assertIn("why useful", output.lower())
                 self.assertIn("implementation", output.lower())
 
@@ -156,11 +179,18 @@ class UsefulnessEvaluationTests(unittest.TestCase):
                     )
                 )
                 self.assertGreaterEqual(len(repositories), 2)
-                self.assertRegex(output, r"[A-Za-z0-9_./-]+\.(py|ts|tsx|go|rs|java|md)")
+                self.assertTrue(each_repository_has_file_evidence(output))
                 self.assertIn("<repomind-result status=\"complete\">", output)
                 self.assertIn("trade-off", output.lower())
                 self.assertIn("freshness:", output.lower())
                 self.assertIn("applicability:", output.lower())
+
+    def test_comparative_evidence_rejects_a_repository_without_a_file(self):
+        output = (
+            "https://github.com/example/with-file uses src/worker.py; "
+            "https://github.com/example/without-file provides another approach."
+        )
+        self.assertFalse(each_repository_has_file_evidence(output))
 
     def test_baseline_outputs_are_intentionally_generic(self):
         for case in self.fixture["cases"]:

@@ -79,38 +79,50 @@ class SkillContractTests(unittest.TestCase):
             "## State 2: After research confirmation", 1
         )[0].lower()
 
-        valid_research_requests = (
-            "Research plugin lifecycle and isolation designs in public codebases",
-            "Compare scheduler retry patterns across repositories",
-            "Find reusable Agent Skill workflow designs and rationale",
-        )
-        invalid_narrow_requests = (
-            "How do I implement React useState?",
-            "What arguments does this API accept?",
-            "Debug this failing unit test",
-        )
+        valid_contract_relationships = {
+            "Research plugin lifecycle and isolation designs in public codebases": (
+                (description, "feature design"),
+                (state_one, "explicit query"),
+                (state_one, "research directly"),
+            ),
+            "Compare scheduler retry patterns across repositories": (
+                (description, "engineering patterns"),
+                (description, "comparative evidence"),
+                (state_one, "research directly"),
+            ),
+            "Find reusable Agent Skill workflow designs and rationale": (
+                (description, "design rationale"),
+                (description, "public codebases"),
+                (state_one, "research directly"),
+            ),
+        }
+        invalid_contract_relationships = {
+            "How do I implement React useState?": (
+                (state_one, "syntax question"),
+                (state_one, "ordinary coding help"),
+            ),
+            "What arguments does this API accept?": (
+                (state_one, "single api question"),
+                (state_one, "documentation"),
+            ),
+            "Debug this failing unit test": (
+                (state_one, "routine debugging"),
+                (state_one, "normal debugging"),
+            ),
+        }
 
-        def should_trigger(request):
-            lower = request.lower()
-            rejected = any(term in lower for term in ("usestate", "api", "debug"))
-            research = any(
-                term in lower
-                for term in ("research", "compare", "reusable", "design", "pattern", "rationale")
-            )
-            return research and not rejected
+        for request, relationships in {
+            **valid_contract_relationships,
+            **invalid_contract_relationships,
+        }.items():
+            with self.subTest(request=request):
+                for contract_text, normative_clause in relationships:
+                    self.assertIn(normative_clause, contract_text)
 
-        self.assertIn("feature design", description)
-        self.assertIn("engineering patterns", description)
-        self.assertIn("design rationale", description)
-        self.assertIn("syntax question", state_one)
-        self.assertIn("single api question", state_one)
-        self.assertIn("routine debugging", state_one)
-        for request in valid_research_requests:
-            with self.subTest(request=request):
-                self.assertTrue(should_trigger(request))
-        for request in invalid_narrow_requests:
-            with self.subTest(request=request):
-                self.assertFalse(should_trigger(request))
+        metadata = OPENAI_YAML.read_text(encoding="utf-8").lower()
+        self.assertIn("allow_implicit_invocation: true", metadata)
+        self.assertIn("genuine comparative evidence", metadata)
+        self.assertIn("not from keyword matching alone", metadata)
 
     def test_no_query_conversation_and_query_direct_research(self):
         for phrase in (
