@@ -13,10 +13,11 @@ relevance, records traceable evidence as structured cards, and delivers a
 synthesized research report adapted to the current project.
 
 Instead of offering a generic list of popular projects, RepoMind asks a more
-useful question:
+useful class of question:
 
-> Which architectural decisions from existing codebases can be transferred to
-> the project I am working on?
+> Which implementation mechanisms, engineering patterns, workflows, interfaces,
+> or design decisions from existing codebases can inform the project I am
+> working on?
 
 RepoMind is distributed from one source as:
 
@@ -87,10 +88,10 @@ Use RepoMind to find engineering patterns for safe plugin upgrade workflows.
 
 ## Core capabilities
 
-- **Architecture-aware search:** combines repository-name discovery with
+- **Research-aware search:** combines repository-name discovery with
   domain-oriented GitHub queries.
 - **Evidence-based ranking:** scores domain fit, pattern relevance, technology
-  overlap, and architectural depth—not popularity alone.
+  overlap, and implementation depth—not popularity alone.
 - **Structured code cards:** captures design decisions, transferable patterns,
   source references, and limitations.
 - **Local-first caching:** reuses project-local cards, detects stale results,
@@ -155,8 +156,8 @@ codex plugin add repomind@repomind
 ```
 
 Start a new Codex thread after installation so the new plugin is loaded. You
-can then explicitly ask Codex to use RepoMind or ask an architecture research
-question that matches the Skill description.
+can then explicitly ask Codex to use RepoMind or ask a reusable implementation
+or engineering-design research question that matches the Skill description.
 
 Example:
 

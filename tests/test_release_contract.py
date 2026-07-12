@@ -51,6 +51,7 @@ class ReleaseContractTests(unittest.TestCase):
             "cross-plugin collaboration",
         ):
             self.assertIn(phrase, readme)
+        self.assertNotIn("ask an architecture research question", readme)
 
     def test_readme_has_four_scenario_matrix(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -73,6 +74,37 @@ class ReleaseContractTests(unittest.TestCase):
             "localized change",
             "global or unmappable change",
             'status="partial"',
+        ):
+            self.assertIn(phrase, tutorial)
+
+    def test_tutorial_does_not_restore_architecture_only_positioning(self):
+        tutorial = " ".join(
+            (ROOT / "docs" / "tutorial.md")
+            .read_text(encoding="utf-8")
+            .lower()
+            .split()
+        )
+        for legacy_phrase in (
+            "a good repomind request names an architectural concern",
+            "/repomind:repomind <architecture question>",
+            "clearly asks for architecture research",
+            "parse the architecture intent",
+            "architectural relevance",
+            "rewrite the request around a system-level decision",
+        ):
+            self.assertNotIn(legacy_phrase, tutorial)
+
+    def test_tutorial_states_generalized_research_scope(self):
+        tutorial = " ".join(
+            (ROOT / "docs" / "tutorial.md")
+            .read_text(encoding="utf-8")
+            .lower()
+            .split()
+        )
+        for phrase in (
+            "reusable implementation mechanism, engineering or design pattern, workflow, interface, or design rationale",
+            "narrow syntax questions, single-framework api usage, and routine debugging remain out of scope",
+            "score the remaining repositories for relevance to the research question",
         ):
             self.assertIn(phrase, tutorial)
 

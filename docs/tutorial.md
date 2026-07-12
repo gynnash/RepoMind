@@ -15,8 +15,9 @@ RepoMind is an open-source implementation research Skill. Use it to investigate
 implementation mechanisms, workflows, interfaces, rationale, trade-offs,
 evolution, architecture, and other reusable engineering patterns.
 
-It is not a general GitHub search assistant. A good RepoMind request names an
-architectural concern:
+It is not a general GitHub search assistant. A good RepoMind request names a
+reusable implementation mechanism, engineering or design pattern, workflow,
+interface, or design rationale:
 
 ```text
 Find reusable architectures for a multi-agent task scheduler with priorities,
@@ -29,7 +30,8 @@ A request such as the following is too broad:
 Design my backend.
 ```
 
-A request such as this is too narrow:
+A request such as this is too narrow because it asks for syntax-level
+implementation rather than comparative research:
 
 ```text
 How do I write a Python priority queue?
@@ -92,10 +94,10 @@ Start Claude Code:
 claude
 ```
 
-The plugin command is namespaced:
+The plugin command is namespaced and accepts a research question:
 
 ```text
-/repomind:repomind <architecture question>
+/repomind:repomind <research question>
 ```
 
 If the command does not appear immediately, restart Claude Code or run
@@ -123,7 +125,7 @@ priorities, retries, persistent state, and pluggable execution backends.
 ```
 
 RepoMind can also activate automatically when a request clearly asks for
-architecture research.
+reusable implementation or engineering-design research.
 
 ## 4. Try the invocation scenarios
 
@@ -158,11 +160,11 @@ not broaden, narrow, or replace the research goal. On a new project, the local
 card database is empty. RepoMind should report its
 progress through these stages:
 
-1. Parse the architecture intent and inspect the current project.
+1. Parse the research intent and inspect the current project.
 2. Check the local code-card cache.
 3. Search GitHub for candidate repositories.
 4. Reject archived, stale, or weakly documented candidates.
-5. Score the remaining repositories for architectural relevance.
+5. Score the remaining repositories for relevance to the research question.
 6. Analyze accepted repositories.
 7. Save new cards and assemble the response.
 
@@ -179,7 +181,8 @@ idempotent downloads and explain the trade-offs for this project.
 ```
 
 It researches that mechanism directly and uses the existing repository only
-to adapt findings. Narrow API usage and routine debugging remain out of scope.
+to adapt findings. Narrow syntax questions, single-framework API usage, and
+routine debugging remain out of scope.
 
 ## 5. Read the synthesized report
 
@@ -220,7 +223,7 @@ Pay attention to five fields:
 
 - **Dimension** tells you whether the card covers architecture, data flow,
   interfaces, deployment, or another design concern.
-- **Relevance** reflects architectural fit with your request.
+- **Relevance** reflects fit with your research question.
 - **Key Design** describes concrete implementation choices.
 - **Source References** identifies the files or documentation supporting the
   conclusion.
@@ -399,8 +402,10 @@ not a complete RepoMind run.
 
 ### RepoMind refuses the request
 
-Rewrite the request around a system-level decision. Include the domain,
-architectural concern, important constraints, and relevant project context.
+Rewrite the request around a reusable implementation mechanism, engineering or
+design pattern, workflow, interface, or design rationale. Include the domain,
+important constraints, and relevant project context. Narrow syntax questions,
+single-framework API usage, and routine debugging remain out of scope.
 
 ### GitHub rate limits interrupt the search
 
