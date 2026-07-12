@@ -1,7 +1,8 @@
 interface:
   display_name: "RepoMind"
-  short_description: "Find reusable architecture patterns from GitHub"
-  default_prompt: "Use $repomind to find open-source architecture patterns relevant to my design."
+  short_description: "Research reusable designs from public codebases"
+  default_prompt: "Use $repomind to research public implementations relevant to this design question."
 
 policy:
   allow_implicit_invocation: true
+  invocation_guidance: "Invoke only when genuine comparative evidence can inform a design decision, not from keyword matching alone."
