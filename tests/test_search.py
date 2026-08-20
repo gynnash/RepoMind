@@ -122,6 +122,7 @@ class SearchTests(unittest.TestCase):
 
     def test_adaptive_freshness_defaults(self):
         config = self.search.load_config()
+        self.assertEqual(config["max_search_repos"], 12)
         self.assertEqual(config["freshness_min_days"], 1)
         self.assertEqual(config["freshness_max_days"], 30)
         self.assertEqual(config["freshness_default_days"], 7)

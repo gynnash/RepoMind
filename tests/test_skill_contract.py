@@ -265,6 +265,7 @@ class SkillContractTests(unittest.TestCase):
             self.assertIn(field, text)
         self.assertIn("documented rationale", text)
         self.assertIn("inference", text)
+        self.assertIn("within 800 words", text)
 
     def test_no_mandatory_architecture_dimension_bundle_survives(self):
         combined = "\n".join(path.read_text(encoding="utf-8") for path in (
@@ -289,6 +290,8 @@ class SkillContractTests(unittest.TestCase):
             "## Approaches and trade-offs",
             "## Public implementation evidence",
             "## Implications for the current project",
+            "## Required code changes if adopted",
+            "## Benefits and risks for the current codebase",
             "## Evidence freshness",
             "## Follow-up directions",
         ):
@@ -298,6 +301,9 @@ class SkillContractTests(unittest.TestCase):
         for freshness in ("new", "validated_cache", "unverified_cache"):
             self.assertIn(freshness, text)
         self.assertIn("next action", text)
+        self.assertIn("Keep the result compact", text)
+        self.assertIn("files, modules, interfaces, tests, migrations, or configuration", text)
+        self.assertIn("expected gains", text)
 
 
 if __name__ == "__main__":

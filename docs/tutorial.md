@@ -338,7 +338,7 @@ Available settings:
 
 | Setting | Purpose | Default |
 |---|---|---:|
-| `max_search_repos` | Maximum GitHub candidates | `20` |
+| `max_search_repos` | Maximum GitHub candidates | `12` |
 | `min_relevance_score` | Fine-filter acceptance score | `3.5` |
 | `card_similarity_threshold` | Duplicate-card threshold | `0.7` |
 | `empty_query_ttl_hours` | Empty-search suppression period | `24` |

@@ -178,7 +178,7 @@ python3 plugins/repomind/skills/repomind/scripts/search.py config
 
 ```json
 {
-  "max_search_repos": 20,
+  "max_search_repos": 12,
   "min_relevance_score": 3.5,
   "card_similarity_threshold": 0.7,
   "empty_query_ttl_hours": 24,
