@@ -1,6 +1,6 @@
 {
   "name": "repomind",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Find similar open-source repositories and extract reusable architecture code cards.",
   "author": {
     "name": "gynnash",
